@@ -26,28 +26,38 @@ function Gate({ children }: { children: React.ReactNode }) {
   const [logOpen, setLogOpen] = useState(false);
   const isLogin = pathname === "/login";
   const isPublicMarketing = pathname === "/landing";
+  const isStore = pathname.startsWith("/store");
+  const isAdmin = pathname.startsWith("/admin");
   const isPublic = isLogin || isPublicMarketing;
-  const hideChrome = pathname === "/onboarding" || isPublic;
+  const hideChrome = pathname === "/onboarding" || isPublic || isStore || isAdmin;
 
   useEffect(() => {
     if (loading) return;
     // Signed-out visitors land on the marketing page first, not straight
     // on the signup form — /login stays directly reachable too (e.g. a
     // returning user with the link bookmarked).
-    if (!user && !isPublic) router.replace("/landing");
+    // Store and Admin routes handle their own auth gates.
+    if (!user && !isPublic && !isStore && !isAdmin) router.replace("/landing");
     if (user && isPublic) router.replace("/");
-  }, [loading, user, isPublic, router]);
+  }, [loading, user, isPublic, isStore, isAdmin, router]);
 
   if (loading) return <Splash />;
 
   if (!user) {
     // Only the marketing and login pages render while signed out;
     // everything else is a brief redirect flash handled above.
-    if (!isPublic) return <Splash />;
+    // Store & Admin routes render their own splash/auth gate.
+    if (!isPublic && !isStore && !isAdmin) return <Splash />;
     return <>{children}</>;
   }
 
   if (isPublic) return <Splash />;
+
+  // Store routes render their own layout (StoreLayout) — pass through.
+  if (isStore) return <>{children}</>;
+
+  // Admin routes render their own layout (AdminLayout) — pass through.
+  if (isAdmin) return <>{children}</>;
 
   return (
     <StoreProvider>

@@ -93,6 +93,39 @@ nav[aria-label="Primary"] {
   border: 1px solid var(--border);
 }
 
+/* Reusable admin form input — used by product form and future admin forms */
+.form-input {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.875rem;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+.form-input:focus {
+  outline: none;
+  border-color: rgba(251, 191, 36, 0.6);
+}
+.form-input::placeholder {
+  color: var(--text-muted);
+}
+textarea.form-input {
+  height: auto;
+  padding: 10px 12px;
+  resize: vertical;
+}
+select.form-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
 .text-glow-nova {
   text-shadow: 0 0 18px var(--glow-nova, rgba(124, 92, 240, 0.55));
 }
@@ -537,4 +570,49 @@ html:not(.dark):not(.princess)::before {
 
 .princess ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   BB STORE ADMIN — layout utilities
+   The admin shell is a full-viewport two-column layout (sidebar + main).
+   These classes handle the sidebar transition and admin-specific spacing.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Ensure admin layout fills the viewport height */
+.admin-layout {
+  display: flex;
+  min-height: 100dvh;
+}
+
+/* Sidebar active nav item glow — amber accent to match store brand */
+.admin-nav-active {
+  background: rgb(245 158 11 / 0.12);
+  color: rgb(245 158 11);
+}
+
+/* Admin focus ring uses amber accent */
+.admin-shell :focus-visible {
+  outline-color: rgba(245, 158, 11, 0.6);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   ADMIN SHELL — suppress consumer app decorations
+   All admin pages wrap their content in .admin-shell.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.admin-shell::before,
+.admin-shell::after,
+.admin-shell body::before,
+.admin-shell body::after {
+  display: none !important;
+  content: none !important;
+}
+
+.admin-shell .admin-nav-active {
+  background: #E0EAFF;
+  color: #1D4ED8;
+}
+
+.admin-shell :focus-visible {
+  outline-color: #1D4ED8 !important;
 }

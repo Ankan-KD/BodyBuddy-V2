@@ -13,7 +13,7 @@ import { computeCombinedTotals, foodProgress } from "@/lib/nutrition";
 import { useStore } from "@/lib/store";
 import { FoodCategory, FoodTemplate } from "@/lib/types";
 import { cn, isFoodScheduledOn, relativeDayLabel } from "@/lib/utils";
-import { Beef, Droplets, Flame, PieChart, Plus, Settings, Wheat } from "lucide-react";
+import { Beef, Droplets, Flame, PieChart, Plus, Settings, Wheat, ShoppingBag, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -236,6 +236,20 @@ export default function DashboardPage() {
           </Link>
         </div>
       </header>
+
+      {/* BB Store entry banner */}
+      <Link href="/store">
+        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-amber-500/25 bg-gradient-to-r from-amber-500/10 to-orange-500/5 px-4 py-3 shadow-soft active:scale-[0.99] transition-transform">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-soft shrink-0">
+            <ShoppingBag className="w-4.5 h-4.5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold leading-tight">BB Store</p>
+            <p className="text-xs text-[var(--text-muted)] truncate">Supplements & health products</p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0" />
+        </div>
+      </Link>
 
       {/* Dashboard tabs — Today's Diet (the plan) vs Today's Consumption (what was actually eaten) */}
       <div className="mb-5 grid grid-cols-2 gap-1.5 rounded-xl2 bg-nova-700/6 dark:bg-nova-100/6 p-1">

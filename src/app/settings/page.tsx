@@ -6,7 +6,8 @@ import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EditableNumber } from "@/components/ui/editable-number";
-import { Sun, Moon, Monitor, Heart, LogOut, Mail, TrendingUp, TrendingDown, Equal, AlertTriangle } from "lucide-react";
+import { Sun, Moon, Monitor, Heart, LogOut, Mail, TrendingUp, TrendingDown, Equal, AlertTriangle, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { GoalMode } from "@/lib/types";
 import { GOAL_SHORT_LABELS, goalWeightWarning, calorieGoalWarning } from "@/lib/goalCopy";
 
@@ -127,6 +128,22 @@ export default function SettingsPage() {
           ))}
         </div>
       </Card>
+
+      {/* BB Store Admin entry point — visible to all users; access controlled server-side */}
+      <Link href="/admin/login">
+        <Card className="p-4 mb-4 flex items-center gap-3 cursor-pointer hover:border-amber-400/40 transition-colors group">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm flex-shrink-0">
+            <ShieldCheck className="w-4 h-4 text-white" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">BB Store Admin</p>
+            <p className="text-xs text-[var(--text-muted)]">Manage products, orders &amp; store</p>
+          </div>
+          <svg className="w-4 h-4 text-[var(--text-muted)] group-hover:text-amber-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </Card>
+      </Link>
 
       <Card className="p-4">
         <p className="text-sm font-medium mb-3">Theme</p>

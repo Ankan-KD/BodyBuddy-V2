@@ -96,3 +96,91 @@ policies for them — with RLS on and no write policy, Postgres denies those
 operations outright for every role except your service-role key. That's a
 stronger read-only guarantee than a bundled file: it's enforced by the
 database itself, not by "nothing in the code happens to write to it."
+
+---
+
+## Product Catalog
+
+- `product_catalog.csv` — the static product catalog / template library for BB Store.
+  This is the **reusable template source**, not the live store database.
+
+### Architecture
+
+```
+product_catalog.csv          (template library — read only)
+        │
+        │  Admin browses /admin/catalog
+        │  Clicks "Add to Store"
+        ▼
+ /admin/products/new          (ProductForm prefilled via query params)
+        │
+        │  Admin reviews / edits everything:
+        │    name, brand, category, description, images,
+        │    nutrition, ingredients, variants, price, stock
+        │
+        │  Clicks "Save"
+        ▼
+Supabase → store_products + store_product_variants
+        (now independent of the catalog)
+```
+
+### Rules
+
+1. **Never write to the CSV at runtime.** The catalog is read-only. It is
+   bundled at build time and served client-side via a `?raw` webpack import.
+2. **Once imported, Supabase is the source of truth.** Price, stock,
+   publishing state, and any admin edits live in the database only.
+3. **Catalog updates do not overwrite store products.** If you later change a
+   catalog entry, existing store products are NOT affected — they became
+   independent when saved.
+4. **Traceability.** The catalog_product_id (e.g. `CAT-0001`) is passed as
+   a query param during import so the form can record where the product
+   originated. This is informational only.
+
+### CSV columns
+
+| Column | Purpose |
+|---|---|
+| `product_id` | Stable catalog ID (e.g. `CAT-0001`). Never reuse or renumber. |
+| `product_name` | Display name |
+| `slug` | URL-safe slug (suggested; admin can override) |
+| `brand` | Brand name string (matched to store_brands on import) |
+| `category` | Category name string (matched to store_categories on import) |
+| `short_description` | 1–2 sentence summary |
+| `full_description` | Markdown body |
+| `product_status` | Catalog-level hint (`active` / `inactive`) |
+| `sort_order` | Display order in catalog browser |
+| `goal_tags` | Comma-separated: `weight-gain,muscle-building,...` |
+| `search_tags` | Comma-separated search keywords |
+| `primary_image_url` | Main product image URL |
+| `image_url_2` … `image_url_5` | Additional image URLs |
+| `serving_size_label` | e.g. `1 scoop (30g)` |
+| `serving_size_g` | Serving size in grams |
+| `calories` … `sodium_mg` | Per-serving nutrition values |
+| `usage_information` | How to use / directions |
+| `ingredients` | Full ingredient list |
+| `warnings_allergens` | Allergen / warning text |
+| `variant_id` | Stable variant ID within the catalog entry |
+| `sku` | Suggested SKU (admin should verify uniqueness) |
+| `variant_name` | e.g. `1kg – Chocolate` |
+| `size_weight` | e.g. `1kg` |
+| `flavour` | e.g. `Chocolate`, blank if unflavoured |
+| `colour` | e.g. `Red` (for apparel/accessories) |
+| `variant_status` | Catalog-level hint |
+| `price_inr` | **Suggested** price in ₹ (admin sets the real price) |
+| `compare_at_price_inr` | Suggested strikethrough price |
+| `stock_quantity` | Initial stock suggestion (admin sets real stock) |
+| `low_stock_threshold` | Suggested low-stock alert level |
+| `is_default_variant` | `true` / `false` |
+| `created_at` / `updated_at` | Catalog-level timestamps |
+
+### Adding new catalog products
+
+One product can span **multiple rows** — one row per variant. All rows for
+the same product share the same `product_id`. Product-level fields (name,
+description, nutrition, images …) are taken from the **first row** for that
+product_id. Leave variant-level fields blank on subsequent rows if they
+don't change.
+
+After editing the CSV, deploy the project. The catalog is bundled at build
+time — no database migration needed.
