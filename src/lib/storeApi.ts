@@ -5,6 +5,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { supabase } from "./supabase";
+import { StoreOffer, OfferRow, offerFromRow, StoreSettings, settingsFromRows } from "./offerTypes";
 import {
   StoreCategory,
   StoreProduct,
@@ -114,8 +115,8 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
     .from("store_products")
     .select(
       categorySlug
-        ? `*, store_categories!inner(slug), store_brands(*), store_product_variants(*)`
-        : `*, store_categories(*), store_brands(*), store_product_variants(*)`
+        ? `*, store_categories!category_id!inner(slug), store_brands(*), store_product_variants(*)`
+        : `*, store_categories!category_id(*), store_brands(*), store_product_variants(*)`
     )
     .eq("published", true)
     .eq("availability", "active");
@@ -196,7 +197,7 @@ export async function fetchProductsByIds(ids: string[]): Promise<StoreProduct[]>
 
   const { data, error } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), store_categories(*), store_product_variants(*)")
+    .select("*, store_brands(*), store_categories!category_id(*), store_product_variants(*)")
     .in("id", ids)
     .eq("published", true)
     .eq("availability", "active");
@@ -228,7 +229,7 @@ export async function fetchProductBySlug(slug: string): Promise<StoreProduct | n
 
   const { data: productData, error: productError } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), store_categories(*)")
+    .select("*, store_brands(*), store_categories!category_id(*)")
     .eq("slug", slug)
     .eq("published", true)
     .single();
@@ -267,7 +268,7 @@ export async function fetchProductById(id: string): Promise<StoreProduct | null>
 
   const { data, error } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), store_categories(*), store_product_variants(*)")
+    .select("*, store_brands(*), store_categories!category_id(*), store_product_variants(*)")
     .eq("id", id)
     .eq("published", true)
     .single();
@@ -334,4 +335,35 @@ export async function fetchBrands(): Promise<StoreBrand[]> {
 
   if (error) return [];
   return (data as BrandRow[]).map(brandFromRow);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase 9 — Customer-facing store settings & offers
+// ════════════════════════════════════════════════════════════════════════
+
+/** Fetch store-wide settings (read-only for customers). */
+export async function fetchStoreSettings(): Promise<StoreSettings> {
+  if (!supabase) return settingsFromRows([]);
+  const { data, error } = await supabase.from("store_settings").select("key, value");
+  if (error || !data) return settingsFromRows([]);
+  return settingsFromRows(data as { key: string; value: string }[]);
+}
+
+/** Fetch all currently active offers (for customer display / cart application). */
+export async function fetchActiveOffers(): Promise<StoreOffer[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("store_offers")
+    .select("*")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  const now = Date.now();
+  return (data as OfferRow[])
+    .map(offerFromRow)
+    .filter(o => {
+      if (o.startsAt && new Date(o.startsAt).getTime() > now) return false;
+      if (o.endsAt && new Date(o.endsAt).getTime() < now) return false;
+      return true;
+    });
 }

@@ -19,12 +19,27 @@ export interface CatalogVariant {
   stockQuantity: number;
   lowStockThreshold: number;
   isDefaultVariant: boolean;
+  // Variant-level nutrition (falls back to product-level when blank)
+  calories: number | null;
+  proteinG: number | null;
+  carbohydratesG: number | null;
+  fatG: number | null;
+  fibreG: number | null;
+  sugarG: number | null;
+  sodiumMg: number | null;
+  servingSizeLabel: string;
+  servingSizeG: number | null;
 }
 
 /**
  * Subset of catalog data passed as query params from the Catalog page to
- * the new-product form. The form reads this and prefills its state —
- * nothing is written to the CSV.
+ * the new-product form. The form reads this and prefills its state.
+ *
+ * NOTE: aimTags is intentionally NOT included here. Aim is display-only
+ * metadata shown in the catalog browser so the admin can understand a
+ * product. It is never written to the database — only the 4 broad goalTags
+ * (weight-gain, weight-loss, muscle-building, general-fitness) are stored
+ * as health_goal_tags in Supabase.
  */
 export interface CatalogPrefill {
   catalogId: string;
@@ -38,7 +53,7 @@ export interface CatalogPrefill {
   ingredients: string;
   warnings: string;
   images: string[];
-  goalTags: string[];
+  goalTags: string[];         // broad segments → stored as health_goal_tags
   searchTags: string[];
   servingSizeLabel: string;
   servingSizeG: number | null;
@@ -50,6 +65,7 @@ export interface CatalogPrefill {
   sugarG: number | null;
   sodiumMg: number | null;
   variants: CatalogVariant[];
+  selectedVariantId?: string; // which variant the admin had selected
 }
 
 export interface CatalogProduct {
@@ -63,16 +79,22 @@ export interface CatalogProduct {
   // Content
   shortDescription: string;
   fullDescription: string;
-  productStatus: string;      // "active" | "inactive" etc. — catalog-level hint
+  productStatus: string;
   sortOrder: number;
-  goalTags: string[];         // ["weight-gain", "muscle-building", ...]
+
+  // Goals & Aim — kept strictly separate
+  goalTags: string[];   // BROAD segments: ["weight-gain", "muscle-building", ...]
+                        // Used for the Goals filter dropdown in admin catalog.
+                        // Stored as health_goal_tags in Supabase when added to store.
+  aimTags: string[];    // DETAILED purposes: ["Muscle Recovery", "Lean Muscle", ...]
+                        // Display-only in the catalog browser. Never stored or filtered on.
   searchTags: string[];
 
   // Images
   primaryImageUrl: string;
-  imageUrls: string[];        // all images including primary
+  imageUrls: string[];
 
-  // Nutrition (per serving)
+  // Nutrition (per serving — product-level; variant fields may differ)
   servingSizeLabel: string;
   servingSizeG: number | null;
   calories: number | null;
@@ -88,6 +110,6 @@ export interface CatalogProduct {
   ingredients: string;
   warningsAllergens: string;
 
-  // Variants (one catalog product can have multiple variants)
+  // Variants
   variants: CatalogVariant[];
 }

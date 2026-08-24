@@ -387,6 +387,22 @@ html:not(.dark):not(.princess)::before {
   background-size: 100% 100%;
 }
 
+/* ── BB Store visual identity ─────────────────────────────────────────────
+   Applied to the root wrapper of every store route via StoreLayout.
+   Keeps the store's amber/orange accent tone without affecting BB Health
+   or Admin, which live in separate layout trees.                         */
+.store-theme {
+  /* Amber accent override for store-specific interactive elements */
+  --store-accent: theme(colors.amber.500);
+  --store-accent-muted: theme(colors.amber.500 / 15%);
+  /* Slightly warmer glass panels inside the store */
+  --store-glass-tint: rgba(251, 191, 36, 0.03);
+}
+
+.store-theme .glass-panel {
+  background: color-mix(in srgb, var(--bg-elevated) 97%, var(--store-glass-tint));
+}
+
 .dark .glass-panel {
   background: linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015));
   backdrop-filter: blur(14px);

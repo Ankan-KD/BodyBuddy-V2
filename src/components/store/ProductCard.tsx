@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Star, ShoppingCart, Package } from "lucide-react";
+import { Star, ShoppingCart, Package, Plus, Minus, Check } from "lucide-react";
+import { useState, useCallback } from "react";
 import {
   StoreProduct,
   StoreProductVariant,
@@ -10,7 +11,9 @@ import {
   defaultVariant,
   stockLabel,
   isProductAvailable,
+  isVariantPurchasable,
 } from "@/lib/storeTypes";
+import { useCart } from "@/lib/cartContext";
 import { cn } from "@/lib/utils";
 
 // ── Skeleton ──────────────────────────────────────────────────────────────
@@ -70,13 +73,13 @@ export function ProductCard({ product, href }: ProductCardProps) {
       : null;
 
   return (
-    <Link href={link}>
-      <div
-        className={cn(
-          "glass-panel rounded-2xl border border-[var(--border)] shadow-soft overflow-hidden active:scale-[0.98] transition-transform",
-          !available && "opacity-60"
-        )}
-      >
+    <div
+      className={cn(
+        "glass-panel rounded-2xl border border-[var(--border)] shadow-soft overflow-hidden flex flex-col",
+        !available && "opacity-60"
+      )}
+    >
+      <Link href={link} className="block">
         {/* Image */}
         <div className="relative h-36 bg-gradient-to-br from-amber-500/10 to-nova-500/10 flex items-center justify-center">
           {primaryImage ? (
@@ -109,7 +112,7 @@ export function ProductCard({ product, href }: ProductCardProps) {
         </div>
 
         {/* Body */}
-        <div className="p-3">
+        <div className="p-3 flex-1">
           {product.brand && (
             <p className="text-[10px] text-[var(--text-muted)] mb-0.5">{product.brand.name}</p>
           )}
@@ -147,8 +150,84 @@ export function ProductCard({ product, href }: ProductCardProps) {
             </p>
           )}
         </div>
-      </div>
-    </Link>
+      </Link>
+
+      {/* Quick add button */}
+      {variant && available && isVariantPurchasable(variant) && (
+        <div className="px-3 pb-3">
+          <QuickAddButton product={product} variant={variant} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── QuickAddButton (card-level, compact) ──────────────────────────────────
+
+function QuickAddButton({
+  product,
+  variant,
+}: {
+  product: StoreProduct;
+  variant: StoreProductVariant;
+}) {
+  const { items, addItem, updateQty, updatingIds } = useCart();
+  const existing = items.find((i) => i.variantId === variant.id);
+  const qty = existing?.quantity ?? 0;
+  const isUpdating = updatingIds.has(variant.id);
+  const atMax = qty >= variant.stockQuantity;
+  const [flash, setFlash] = useState(false);
+
+  const handleAdd = useCallback(async () => {
+    await addItem(product, variant, 1);
+    setFlash(true);
+    setTimeout(() => setFlash(false), 800);
+  }, [addItem, product, variant]);
+
+  if (qty === 0) {
+    return (
+      <button
+        onClick={handleAdd}
+        disabled={isUpdating || atMax}
+        className={cn(
+          "w-full flex items-center justify-center gap-1.5 text-xs font-semibold rounded-xl py-2 transition-all active:scale-95",
+          flash
+            ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300"
+            : "bg-amber-500/15 text-amber-600 dark:text-amber-300 hover:bg-amber-500/25",
+          (isUpdating || atMax) && "opacity-60 cursor-not-allowed"
+        )}
+      >
+        {flash ? (
+          <><Check className="w-3.5 h-3.5" /> Added</>
+        ) : (
+          <><ShoppingCart className="w-3.5 h-3.5" /> Add</>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between bg-amber-500/10 rounded-xl px-1 py-0.5">
+      <button
+        onClick={() => updateQty(variant.id, qty - 1)}
+        disabled={isUpdating}
+        className="w-8 h-8 flex items-center justify-center rounded-lg text-amber-600 dark:text-amber-300 hover:bg-amber-500/20 transition-colors active:scale-90 disabled:opacity-50"
+        aria-label="Decrease"
+      >
+        <Minus className="w-3.5 h-3.5" />
+      </button>
+      <span className="text-sm font-bold text-amber-600 dark:text-amber-300 min-w-[20px] text-center">
+        {isUpdating ? "…" : qty}
+      </span>
+      <button
+        onClick={() => updateQty(variant.id, qty + 1)}
+        disabled={isUpdating || atMax}
+        className="w-8 h-8 flex items-center justify-center rounded-lg text-amber-600 dark:text-amber-300 hover:bg-amber-500/20 transition-colors active:scale-90 disabled:opacity-50"
+        aria-label="Increase"
+      >
+        <Plus className="w-3.5 h-3.5" />
+      </button>
+    </div>
   );
 }
 
@@ -188,28 +267,99 @@ export function ProductGrid({ products, loading, emptyMessage }: ProductGridProp
   );
 }
 
-// ── Add to cart button (placeholder — wired in Phase 3) ──────────────────
+// ── AddToCartButton (full-width, used on product detail page) ─────────────
 
 export function AddToCartButton({
+  product,
   variant,
   disabled,
 }: {
+  product?: StoreProduct | null;
   variant: StoreProductVariant | null;
   disabled?: boolean;
 }) {
+  const { items, addItem, updateQty, updatingIds } = useCart();
   const unavailable = !variant || variant.availability !== "active" || variant.stockQuantity <= 0;
+
+  const existing = variant ? items.find((i) => i.variantId === variant.id) : null;
+  const qty = existing?.quantity ?? 0;
+  const isUpdating = variant ? updatingIds.has(variant.id) : false;
+  const atMax = variant ? qty >= variant.stockQuantity : false;
+  const [flash, setFlash] = useState(false);
+
+  const handleAdd = useCallback(async () => {
+    if (!product || !variant) return;
+    await addItem(product, variant, 1);
+    setFlash(true);
+    setTimeout(() => setFlash(false), 1000);
+  }, [addItem, product, variant]);
+
+  if (unavailable) {
+    return (
+      <button
+        disabled
+        className="w-full flex items-center justify-center gap-2 font-semibold rounded-2xl py-4 shadow-soft bg-[var(--border)] text-[var(--text-muted)] cursor-not-allowed"
+      >
+        <ShoppingCart className="w-5 h-5" />
+        Unavailable
+      </button>
+    );
+  }
+
+  // Stepper mode when already in cart
+  if (qty > 0) {
+    return (
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => updateQty(variant!.id, qty - 1)}
+          disabled={isUpdating}
+          className="h-14 w-14 flex items-center justify-center rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-300 font-bold text-xl active:scale-95 transition-transform disabled:opacity-50"
+          aria-label="Decrease quantity"
+        >
+          <Minus className="w-5 h-5" />
+        </button>
+        <div className="flex-1 flex flex-col items-center justify-center h-14 rounded-2xl bg-amber-500/10">
+          <span className="text-lg font-bold text-amber-600 dark:text-amber-300">
+            {isUpdating ? "…" : qty}
+          </span>
+          <span className="text-[10px] text-[var(--text-muted)]">in cart</span>
+        </div>
+        <button
+          onClick={handleAdd}
+          disabled={isUpdating || atMax || disabled}
+          className={cn(
+            "h-14 w-14 flex items-center justify-center rounded-2xl font-bold text-xl active:scale-95 transition-transform disabled:opacity-50",
+            flash
+              ? "bg-emerald-500 text-white"
+              : "bg-amber-500 text-white shadow-soft"
+          )}
+          aria-label="Increase quantity"
+        >
+          {flash ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <button
-      disabled={disabled || unavailable}
+      onClick={handleAdd}
+      disabled={disabled || isUpdating || atMax}
       className={cn(
-        "w-full flex items-center justify-center gap-2 font-semibold rounded-2xl py-4 shadow-soft transition-transform",
-        unavailable
-          ? "bg-[var(--border)] text-[var(--text-muted)] cursor-not-allowed"
-          : "bg-amber-500 text-white active:scale-[0.98]"
+        "w-full flex items-center justify-center gap-2 font-semibold rounded-2xl py-4 shadow-soft transition-all active:scale-[0.98]",
+        flash
+          ? "bg-emerald-500 text-white"
+          : "bg-amber-500 text-white",
+        (disabled || isUpdating || atMax) && "opacity-60 cursor-not-allowed"
       )}
     >
-      <ShoppingCart className="w-5 h-5" />
-      {unavailable ? "Unavailable" : "Add to Cart"}
+      {flash ? (
+        <><Check className="w-5 h-5" /> Added to Cart</>
+      ) : isUpdating ? (
+        <span className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+      ) : (
+        <><ShoppingCart className="w-5 h-5" /> Add to Cart</>
+      )}
     </button>
   );
 }

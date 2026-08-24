@@ -481,11 +481,12 @@ export function ProductForm({ product, catalogPrefill }: Props) {
           <span className="text-sm font-medium">Featured product</span>
           <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>(shown in featured sections on the store homepage)</span>
         </label>
+        </div>
       </div>
 
       {/* ── IMAGES ─────────────────────────────────────────────────────── */}
       <div className="a-card" style={{ overflow: "hidden", marginBottom: 14 }}>
-        <div style={{ background: "var(--a-surface-2)", borderBottom: "1px solid var(--a-border)", padding: "10px 18px" }}><SectionHeading title="Product Images" icon={Info} />
+        <div style={{ background: "var(--a-surface-2)", borderBottom: "1px solid var(--a-border)", padding: "10px 18px" }}><SectionHeading title="Product Images" icon={Info} /></div>
         <ImageUploader images={images} onChange={setImages} productSlug={slug || "product"} />
       </div>
 
@@ -540,6 +541,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
           </div>
           <p className="a-form-hint">Separate with Enter or comma</p>
         </div>
+        </div>
       </div>
 
       {/* ── NUTRITION / HEALTH FIELDS ─────────────────────────────────── */}
@@ -577,6 +579,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             <input type="number" min="0" step="0.1" value={sodium} onChange={e => setSodium(e.target.value)} placeholder="50" className="a-form-input w-full sm:w-1/2" />
           </Field>
         </div>
+        </div>
       </div>
 
       {/* ── USAGE, INGREDIENTS, WARNINGS ─────────────────────────────── */}
@@ -612,11 +615,12 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             />
           </Field>
         </div>
+        </div>
       </div>
 
       {/* ── VARIANTS ─────────────────────────────────────────────────── */}
       <div className="a-card" style={{ overflow: "hidden", marginBottom: 14 }}>
-        <div style={{ background: "var(--a-surface-2)", borderBottom: "1px solid var(--a-border)", padding: "10px 18px" }}><SectionHeading title="Variants & Pricing" icon={Tag} />
+        <div style={{ background: "var(--a-surface-2)", borderBottom: "1px solid var(--a-border)", padding: "10px 18px" }}><SectionHeading title="Variants & Pricing" icon={Tag} /></div>
         <p style={{ fontSize: 12, color: "var(--a-text-3)", marginBottom: 10 }}>
           Each product needs at least one variant. Variants hold size, flavour, price, SKU, and stock quantity.
           The starred variant is shown first on the product page.

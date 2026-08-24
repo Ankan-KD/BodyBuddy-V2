@@ -2,9 +2,19 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // Allow importing .csv files as raw text strings via the ?raw suffix.
-  // Used by src/lib/productCatalog.ts to bundle the product catalog at
-  // build time without a separate API route.
+  // Turbopack config — handles *.csv imports via raw-loader so the catalog
+  // CSV is bundled into the JS at build time (not served from /public).
+  turbopack: {
+    rules: {
+      "*.csv": {
+        loaders: ["raw-loader"],
+        as: "*.js",
+      },
+    },
+  },
+
+  // Webpack config — used by `next build` (production) and `next dev --webpack`.
+  // Turbopack ignores this block entirely.
   webpack(config) {
     config.module.rules.push({
       resourceQuery: /raw/,

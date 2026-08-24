@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
-import { Star, Truck, Shield, ChevronLeft, Package, Info } from "lucide-react";
+import { Star, Truck, Shield, ChevronLeft, Package, Info, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useProductBySlug } from "@/lib/useStoreData";
 import { useAuth } from "@/lib/auth";
@@ -15,6 +15,7 @@ import {
   StoreProductVariant,
 } from "@/lib/storeTypes";
 import { AddToCartButton } from "@/components/store/ProductCard";
+import { usePersonalization } from "@/lib/usePersonalization";
 import { cn } from "@/lib/utils";
 
 function NutritionRow({ label, value, unit }: { label: string; value: number | null; unit: string }) {
@@ -34,6 +35,7 @@ export default function ProductDetailPage() {
   const { user } = useAuth();
 
   const [selectedVariant, setSelectedVariant] = useState<StoreProductVariant | null>(null);
+  const personalization = usePersonalization();
 
   // Record this view for the "Recently Viewed" rail on Store Home.
   useEffect(() => {
@@ -185,6 +187,27 @@ export default function ProductDetailPage() {
           </div>
         </div>
 
+        {/* Phase 10: Personalised fit badge */}
+        {personalization.hasHealthData && product.healthGoalTags.includes(personalization.goalTag) && (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <p className="text-xs text-amber-600 dark:text-amber-300 font-medium">
+              Matches your {personalization.goalLabel} goal from BB Health
+            </p>
+          </div>
+        )}
+
+        {/* Phase 10: Protein context for user's target */}
+        {personalization.hasHealthData && personalization.proteinGoalG > 0 &&
+          n.proteinPerServing != null && n.proteinPerServing >= personalization.highProteinThresholdG && (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-nova-500/10 border border-nova-500/20">
+            <span className="text-sm">💪</span>
+            <p className="text-xs text-nova-600 dark:text-nova-300 font-medium">
+              {n.proteinPerServing}g protein per serving · your goal is {personalization.proteinGoalG}g/day
+            </p>
+          </div>
+        )}
+
         {/* Nutrition info */}
         {(n.caloriesPerServing != null || n.proteinPerServing != null) && (
           <div className="glass-panel border border-[var(--border)] rounded-2xl p-4">
@@ -238,7 +261,7 @@ export default function ProductDetailPage() {
         )}
 
         {/* Add to cart */}
-        <AddToCartButton variant={activeVariant} />
+        <AddToCartButton product={product} variant={activeVariant} />
       </div>
 
       <div className="h-6" />

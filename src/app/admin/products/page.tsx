@@ -9,11 +9,12 @@ import {
   Edit2,
   Trash2,
   Star,
+  StarOff,
   ChevronLeft,
   ChevronRight,
   RefreshCw,
 } from "lucide-react";
-import { adminFetchProducts, adminDeleteProduct, adminFetchAllCategories } from "@/lib/storeAdminApi";
+import { adminFetchProducts, adminDeleteProduct, adminFetchAllCategories, adminToggleFeaturedProduct } from "@/lib/storeAdminApi";
 import type { StoreProduct, StoreCategory } from "@/lib/storeTypes";
 import { formatPriceINR } from "@/lib/storeTypes";
 
@@ -103,6 +104,11 @@ export default function AdminProductsPage() {
     setDeleteConfirmId(null);
     await adminDeleteProduct(id);
     setDeletingId(null);
+    load();
+  }
+
+  async function handleToggleFeatured(id: string, current: boolean) {
+    await adminToggleFeaturedProduct(id, !current);
     load();
   }
 
@@ -279,6 +285,15 @@ export default function AdminProductsPage() {
                             >
                               <Edit2 style={{ width: 13, height: 13 }} />
                             </Link>
+                            <button
+                              onClick={() => handleToggleFeatured(product.id, product.isFeatured)}
+                              className="a-btn a-btn-ghost a-btn-icon a-btn-sm"
+                              title={product.isFeatured ? "Remove from featured" : "Mark as featured"}
+                            >
+                              {product.isFeatured
+                                ? <StarOff style={{ width: 13, height: 13, color: "#d97706" }} />
+                                : <Star style={{ width: 13, height: 13 }} />}
+                            </button>
                             <button
                               onClick={() => handleDelete(product.id)}
                               disabled={deletingId === product.id}

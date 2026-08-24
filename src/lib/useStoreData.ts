@@ -6,6 +6,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { fetchStoreSettings, fetchActiveOffers } from "./storeApi";
+import type { StoreSettings, StoreOffer } from "./offerTypes";
 import { useAuth } from "./auth";
 import {
   fetchTopLevelCategories,
@@ -161,4 +163,47 @@ export function useProductSearch(query: string, limit = 8) {
 
 export function useBrands() {
   return useAsync<StoreBrand[]>(fetchBrands, [], []);
+}
+
+// ── Phase 9 — Settings & Offers ───────────────────────────────────────────
+
+export function useStoreSettings() {
+  return useAsync<StoreSettings | null>(
+    fetchStoreSettings,
+    [],
+    null
+  );
+}
+
+export function useActiveOffers() {
+  return useAsync<StoreOffer[]>(fetchActiveOffers, [], []);
+}
+
+// ── Phase 10 — Personalized hooks ────────────────────────────────────────
+
+/**
+ * Products matching the user's BB Health goal tag.
+ * Returns an empty array when goalTag is null/empty.
+ */
+export function useGoalProducts(goalTag: string | null, limit = 10) {
+  return useAsync<StoreProduct[]>(
+    () =>
+      goalTag
+        ? fetchProducts({ healthGoalTag: goalTag, limit })
+        : Promise.resolve([]),
+    [goalTag, limit],
+    []
+  );
+}
+
+/**
+ * High-protein products (tagged "muscle-building") useful for any user
+ * trying to hit their protein target regardless of primary goal.
+ */
+export function useHighProteinProducts(limit = 10) {
+  return useAsync<StoreProduct[]>(
+    () => fetchProducts({ healthGoalTag: "muscle-building", limit }),
+    [limit],
+    []
+  );
 }

@@ -7,11 +7,19 @@ import {
   useProducts,
   useDealProducts,
   useRecentlyViewed,
+  useStoreSettings,
+  useActiveOffers,
 } from "@/lib/useStoreData";
+import { offerLabel } from "@/lib/offerTypes";
 import { CategoryIcon } from "@/components/store/CategoryIcon";
 import { ProductGrid } from "@/components/store/ProductCard";
 import { ProductRail } from "@/components/store/ProductRail";
 import { GOAL_SHOPPING } from "@/lib/goalShopping";
+import { PersonalizedGoalBanner } from "@/components/store/PersonalizedGoalBanner";
+import { PersonalizedSection } from "@/components/store/PersonalizedSection";
+import { HighProteinSection } from "@/components/store/HighProteinSection";
+import { CalorieSection } from "@/components/store/CalorieSection";
+import { usePersonalization } from "@/lib/usePersonalization";
 
 const PROMO_BADGES = [
   { icon: Truck, text: "Free delivery above ₹499" },
@@ -24,6 +32,12 @@ export default function StorePage() {
   const { data: featured, loading: prodLoading } = useProducts({ featured: true, limit: 4 });
   const { data: deals, loading: dealsLoading } = useDealProducts(8);
   const { data: recentlyViewed, loading: recentLoading } = useRecentlyViewed(8);
+  const { data: settings } = useStoreSettings();
+  const { data: activeOffers } = useActiveOffers();
+  const personalization = usePersonalization();
+
+  // Filter to sitewide offers (no code required) for banner display
+  const sitewideOffers = activeOffers.filter(o => !o.code && o.productIds.length === 0);
 
   return (
     <div className="px-4 pt-4 space-y-6">
@@ -36,30 +50,34 @@ export default function StorePage() {
         <span className="text-sm text-[var(--text-muted)]">Search supplements, proteins…</span>
       </Link>
 
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500/20 via-orange-500/10 to-nova-500/15 border border-amber-500/20 p-5">
-        <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-amber-400/10 blur-3xl" />
-        <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-nova-500/10 blur-3xl" />
-        <div className="relative">
-          <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 mb-3 inline-block">
-            Launch Offer
-          </span>
-          <h2 className="font-display text-2xl font-semibold mb-1 leading-tight">
-            Your Health,
-            <br />
-            <span className="text-amber-500 dark:text-amber-400">Delivered.</span>
-          </h2>
-          <p className="text-sm text-[var(--text-muted)] mb-4">
-            Premium nutrition products curated for your BB goals.
-          </p>
-          <Link
-            href="/store/categories"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl bg-amber-500 text-white shadow-soft active:scale-95 transition-transform"
-          >
-            Shop now <ChevronRight className="w-4 h-4" />
-          </Link>
+      {/* Hero Banner — personalised when BB Health data is available */}
+      {personalization.hasHealthData ? (
+        <PersonalizedGoalBanner />
+      ) : (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500/20 via-orange-500/10 to-nova-500/15 border border-amber-500/20 p-5">
+          <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-amber-400/10 blur-3xl" />
+          <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full bg-nova-500/10 blur-3xl" />
+          <div className="relative">
+            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 mb-3 inline-block">
+              Launch Offer
+            </span>
+            <h2 className="font-display text-2xl font-semibold mb-1 leading-tight">
+              Your Health,
+              <br />
+              <span className="text-amber-500 dark:text-amber-400">Delivered.</span>
+            </h2>
+            <p className="text-sm text-[var(--text-muted)] mb-4">
+              Premium nutrition products curated for your BB goals.
+            </p>
+            <Link
+              href="/store/categories"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl bg-amber-500 text-white shadow-soft active:scale-95 transition-transform"
+            >
+              Shop now <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Promo Badges */}
       <div className="grid grid-cols-3 gap-2">
@@ -73,6 +91,40 @@ export default function StorePage() {
           </div>
         ))}
       </div>
+
+      {/* Active Sitewide Offers */}
+      {sitewideOffers.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-display text-lg font-semibold">🎉 Active Offers</h2>
+          </div>
+          <div className="space-y-2">
+            {sitewideOffers.map(offer => (
+              <div
+                key={offer.id}
+                className="glass-panel border border-amber-500/30 rounded-2xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "linear-gradient(135deg, rgba(245,158,11,0.08), rgba(249,115,22,0.06))" }}
+              >
+                <div className="w-9 h-9 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                  <Tag className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold">{offer.title}</div>
+                  {offer.description && (
+                    <div className="text-xs text-[var(--text-muted)] mt-0.5">{offer.description}</div>
+                  )}
+                </div>
+                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 shrink-0">
+                  {offerLabel(offer)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Phase 10: Personalised Goal Section ── */}
+      <PersonalizedSection />
 
       {/* Categories */}
       <section>
@@ -116,6 +168,12 @@ export default function StorePage() {
         )}
       </section>
 
+      {/* ── Phase 10: High Protein Rail (shown for onboarded users) ── */}
+      <HighProteinSection />
+
+      {/* ── Phase 10: Calorie-Context Rail (adapts for gain/lose goals) ── */}
+      <CalorieSection />
+
       {/* Shop by Goal */}
       <section>
         <div className="flex items-center justify-between mb-3">
@@ -127,13 +185,24 @@ export default function StorePage() {
         <div className="grid grid-cols-2 gap-2.5">
           {GOAL_SHOPPING.map((g) => {
             const Icon = g.icon;
+            // Highlight the goal that matches the user's current BB Health goal
+            const isActive = personalization.hasHealthData && g.key === personalization.goalTag;
             return (
               <Link key={g.key} href={`/store/goals/${g.key}`}>
-                <div className={`glass-panel border ${g.ring} rounded-2xl p-3.5 flex items-center gap-2.5 active:scale-[0.97] transition-transform`}>
+                <div
+                  className={`glass-panel border rounded-2xl p-3.5 flex items-center gap-2.5 active:scale-[0.97] transition-transform ${
+                    isActive ? `${g.ring} ring-1 ${g.ring.replace("border-", "ring-")}` : "border-[var(--border)]"
+                  }`}
+                >
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${g.bg}`}>
                     <Icon className={`w-4.5 h-4.5 ${g.text}`} />
                   </div>
-                  <span className="text-xs font-semibold leading-tight">{g.label}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-semibold leading-tight block">{g.label}</span>
+                    {isActive && (
+                      <span className="text-[10px] text-[var(--text-muted)] leading-tight">Your goal</span>
+                    )}
+                  </div>
                 </div>
               </Link>
             );
