@@ -115,14 +115,14 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
     .from("store_products")
     .select(
       categorySlug
-        ? `*, store_categories!category_id!inner(slug), store_brands(*), store_product_variants(*)`
-        : `*, store_categories!category_id(*), store_brands(*), store_product_variants(*)`
+        ? `*, category:store_categories!category_id!inner(slug), store_brands(*), store_product_variants(*)`
+        : `*, category:store_categories!category_id(*), store_brands(*), store_product_variants(*)`
     )
     .eq("published", true)
     .eq("availability", "active");
 
   if (categorySlug) {
-    query = query.eq("store_categories.slug", categorySlug);
+    query = query.eq("category.slug", categorySlug);
   }
   if (brandId) {
     query = query.eq("brand_id", brandId);
@@ -158,8 +158,8 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
     if ((row as any).store_brands) {
       product.brand = brandFromRow((row as any).store_brands as BrandRow);
     }
-    if ((row as any).store_categories) {
-      product.category = categoryFromRow((row as any).store_categories as CategoryRow);
+    if ((row as any).category) {
+      product.category = categoryFromRow((row as any).category as CategoryRow);
     }
     // Attach variants (needed for price/discount/stock display in cards)
     if ((row as any).store_product_variants) {
@@ -197,7 +197,7 @@ export async function fetchProductsByIds(ids: string[]): Promise<StoreProduct[]>
 
   const { data, error } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), store_categories!category_id(*), store_product_variants(*)")
+    .select("*, store_brands(*), category:store_categories!category_id(*), store_product_variants(*)")
     .in("id", ids)
     .eq("published", true)
     .eq("availability", "active");
@@ -207,7 +207,7 @@ export async function fetchProductsByIds(ids: string[]): Promise<StoreProduct[]>
   const products = (data as ProductRow[]).map((row) => {
     const product = productFromRow(row);
     if ((row as any).store_brands) product.brand = brandFromRow((row as any).store_brands as BrandRow);
-    if ((row as any).store_categories) product.category = categoryFromRow((row as any).store_categories as CategoryRow);
+    if ((row as any).category) product.category = categoryFromRow((row as any).category as CategoryRow);
     if ((row as any).store_product_variants) {
       product.variants = ((row as any).store_product_variants as VariantRow[])
         .filter((v) => v.availability !== "discontinued")
@@ -229,7 +229,7 @@ export async function fetchProductBySlug(slug: string): Promise<StoreProduct | n
 
   const { data: productData, error: productError } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), store_categories!category_id(*)")
+    .select("*, store_brands(*), category:store_categories!category_id(*)")
     .eq("slug", slug)
     .eq("published", true)
     .single();
@@ -241,8 +241,8 @@ export async function fetchProductBySlug(slug: string): Promise<StoreProduct | n
   if ((productData as any).store_brands) {
     product.brand = brandFromRow((productData as any).store_brands as BrandRow);
   }
-  if ((productData as any).store_categories) {
-    product.category = categoryFromRow((productData as any).store_categories as CategoryRow);
+  if ((productData as any).category) {
+    product.category = categoryFromRow((productData as any).category as CategoryRow);
   }
 
   // Fetch variants
@@ -268,7 +268,7 @@ export async function fetchProductById(id: string): Promise<StoreProduct | null>
 
   const { data, error } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), store_categories!category_id(*), store_product_variants(*)")
+    .select("*, store_brands(*), category:store_categories!category_id(*), store_product_variants(*)")
     .eq("id", id)
     .eq("published", true)
     .single();
@@ -277,7 +277,7 @@ export async function fetchProductById(id: string): Promise<StoreProduct | null>
 
   const product = productFromRow(data as ProductRow);
   if ((data as any).store_brands) product.brand = brandFromRow((data as any).store_brands);
-  if ((data as any).store_categories) product.category = categoryFromRow((data as any).store_categories);
+  if ((data as any).category) product.category = categoryFromRow((data as any).category);
   if ((data as any).store_product_variants) {
     product.variants = ((data as any).store_product_variants as VariantRow[]).map(variantFromRow);
   }

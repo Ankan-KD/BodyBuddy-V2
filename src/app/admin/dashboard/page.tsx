@@ -52,25 +52,29 @@ export default function AdminDashboardPage() {
     async function load() {
       const [
         allProds, pubProds, draftProds,
-        allOrders, pendingOrders, inventory,
-        customers, topProducts,
+        recentOrders, pendingOrders, todayOrdersRes, allOrdersForRevenue,
+        inventory, customers, topProducts,
       ] = await Promise.all([
         adminFetchProducts({ limit: 1 }),
         adminFetchProducts({ published: true, limit: 1 }),
         adminFetchProducts({ published: false, limit: 1 }),
         adminFetchOrders({ limit: 5 }),
         adminFetchOrders({ status: "placed", limit: 1 }),
+        // Today's orders — fetch last 200; any store doing >200 orders/day needs a server route
+        adminFetchOrders({ limit: 200 }),
+        // All orders for revenue — fetch a large set; for accuracy a DB aggregate would be better
+        adminFetchOrders({ limit: 1000 }),
         adminFetchInventory({ limit: 200 }),
         adminFetchCustomers({ limit: 1 }),
         adminFetchTopProducts(5),
       ]);
 
       const today = new Date().toDateString();
-      const todayOrders = allOrders.orders.filter(
+      const todayOrders = todayOrdersRes.orders.filter(
         (o) => new Date(o.createdAt).toDateString() === today
       ).length;
 
-      const revenue = allOrders.orders
+      const revenue = allOrdersForRevenue.orders
         .filter((o) => o.status !== "cancelled")
         .reduce((s, o) => s + o.totalPaise, 0);
 
@@ -89,7 +93,7 @@ export default function AdminDashboardPage() {
         lowStockCount: lowStock,
         outOfStockCount: outOfStock,
         totalCustomers: customers.total,
-        recentOrders: allOrders.orders.slice(0, 5).map((o) => ({
+        recentOrders: recentOrders.orders.slice(0, 5).map((o) => ({
           id: o.id,
           orderNumber: o.orderNumber,
           customerName: o.customerName,

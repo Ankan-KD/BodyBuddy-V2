@@ -164,9 +164,25 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   const [showNewBrand, setShowNewBrand] = useState(false);
 
   useEffect(() => {
-    adminFetchAllCategories().then(setCategories);
-    adminFetchAllBrands().then(setBrands);
-  }, []);
+    adminFetchAllCategories().then(cats => {
+      setCategories(cats);
+      // When coming from catalog, try to resolve the category name string → ID
+      if (!isEdit && pre?.category && !categoryId) {
+        const needle = pre.category.toLowerCase();
+        const match = cats.find(c => c.name.toLowerCase() === needle || c.slug.toLowerCase() === needle);
+        if (match) setCategoryId(match.id);
+      }
+    });
+    adminFetchAllBrands().then(brandsData => {
+      setBrands(brandsData);
+      // When coming from catalog, try to resolve the brand name string → ID
+      if (!isEdit && pre?.brand && !brandId) {
+        const needle = pre.brand.toLowerCase();
+        const match = brandsData.find(b => b.name.toLowerCase() === needle || b.slug.toLowerCase() === needle);
+        if (match) setBrandId(match.id);
+      }
+    });
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-generate slug from name
   useEffect(() => {
@@ -621,10 +637,12 @@ export function ProductForm({ product, catalogPrefill }: Props) {
       {/* ── VARIANTS ─────────────────────────────────────────────────── */}
       <div className="a-card" style={{ overflow: "hidden", marginBottom: 14 }}>
         <div style={{ background: "var(--a-surface-2)", borderBottom: "1px solid var(--a-border)", padding: "10px 18px" }}><SectionHeading title="Variants & Pricing" icon={Tag} /></div>
-        <p style={{ fontSize: 12, color: "var(--a-text-3)", marginBottom: 10 }}>
-          Each product needs at least one variant. Variants hold size, flavour, price, SKU, and stock quantity.
-          The starred variant is shown first on the product page.
-        </p>
+        <div style={{ padding: "12px 18px 0" }}>
+          <p style={{ fontSize: 12, color: "var(--a-text-3)", marginBottom: 10 }}>
+            Each product needs at least one variant. Variants hold size, flavour, price, SKU, and stock quantity.
+            The starred variant is shown first on the product page.
+          </p>
+        </div>
         <VariantEditor variants={variants} onChange={setVariants} />
       </div>
 

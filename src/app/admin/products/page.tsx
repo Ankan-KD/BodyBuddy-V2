@@ -34,14 +34,25 @@ const PUBLISHED_OPTIONS = [
   { value: "false", label: "Draft" },
 ];
 
+/**
+ * Published = visible to customers on the storefront.
+ * Draft     = hidden from customers, admin-only.
+ */
 function PublishBadge({ published }: { published: boolean }) {
   return published ? (
-    <span className="a-badge a-badge-green">Published</span>
+    <span className="a-badge a-badge-green" title="Visible to customers">Published</span>
   ) : (
-    <span className="a-badge a-badge-neutral">Draft</span>
+    <span className="a-badge a-badge-neutral" title="Hidden from customers">Draft</span>
   );
 }
 
+/**
+ * Availability controls whether the product can be purchased:
+ *   Active       = in stock, can be added to cart
+ *   Inactive     = listed but not purchasable (e.g. temporarily unavailable)
+ *   Out of Stock = no stock; shown but cart blocked
+ *   Discontinued = permanently retired; not shown to customers
+ */
 function AvailabilityBadge({ availability }: { availability: string }) {
   const map: Record<string, string> = {
     active:       "a-badge-blue",
@@ -50,10 +61,22 @@ function AvailabilityBadge({ availability }: { availability: string }) {
     discontinued: "a-badge-red",
   };
   const labels: Record<string, string> = {
-    active: "Active", inactive: "Inactive", out_of_stock: "Out of Stock", discontinued: "Discontinued",
+    active:       "Active",
+    inactive:     "Inactive",
+    out_of_stock: "Out of Stock",
+    discontinued: "Discontinued",
+  };
+  const titles: Record<string, string> = {
+    active:       "In stock and purchasable",
+    inactive:     "Listed but not purchasable",
+    out_of_stock: "No stock — cart is blocked",
+    discontinued: "Permanently retired",
   };
   return (
-    <span className={`a-badge ${map[availability] ?? "a-badge-neutral"}`}>
+    <span
+      className={`a-badge ${map[availability] ?? "a-badge-neutral"}`}
+      title={titles[availability] ?? availability}
+    >
       {labels[availability] ?? availability}
     </span>
   );
@@ -225,7 +248,7 @@ export default function AdminProductsPage() {
                     <th>Product</th>
                     <th>Category</th>
                     <th>Variants</th>
-                    <th>Status</th>
+                    <th title="Published = visible to customers. Draft = hidden. Availability = whether it can be purchased.">Status</th>
                     <th style={{ textAlign: "right" }}>Actions</th>
                   </tr>
                 </thead>
@@ -268,7 +291,24 @@ export default function AdminProductsPage() {
                           {product.category?.name ?? "—"}
                         </td>
                         <td style={{ color: "var(--a-text-2)", fontSize: 12 }}>
-                          {product.variants ? `${product.variants.length}` : "—"}
+                          {product.variants && product.variants.length > 0 ? (
+                            <div>
+                              <span style={{ fontWeight: 500 }}>{product.variants.length} variant{product.variants.length !== 1 ? "s" : ""}</span>
+                              {(() => {
+                                const prices = product.variants.map(v => v.pricePaise).filter(Boolean);
+                                if (!prices.length) return null;
+                                const min = Math.min(...prices);
+                                const max = Math.max(...prices);
+                                return (
+                                  <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 1 }}>
+                                    {min === max ? formatPriceINR(min) : `${formatPriceINR(min)} – ${formatPriceINR(max)}`}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          ) : (
+                            <span style={{ color: "var(--a-text-4)" }}>No variants</span>
+                          )}
                         </td>
                         <td>
                           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>

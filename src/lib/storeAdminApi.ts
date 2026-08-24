@@ -53,7 +53,7 @@ export async function adminFetchProducts(
 
   let query = supabase
     .from("store_products")
-    .select("*, store_brands(*), store_categories!category_id(*)", { count: "exact" })
+    .select("*, store_brands(*), category:store_categories!category_id(*), store_product_variants(*)", { count: "exact" })
     .order("created_at", { ascending: false });
 
   if (search?.trim()) {
@@ -81,7 +81,12 @@ export async function adminFetchProducts(
   const products = (data as ProductRow[]).map((row) => {
     const product = productFromRow(row);
     if ((row as any).store_brands) product.brand = brandFromRow((row as any).store_brands as BrandRow);
-    if ((row as any).store_categories) product.category = categoryFromRow((row as any).store_categories as CategoryRow);
+    if ((row as any).category) product.category = categoryFromRow((row as any).category as CategoryRow);
+    if ((row as any).store_product_variants) {
+      product.variants = ((row as any).store_product_variants as VariantRow[])
+        .map(variantFromRow)
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+    }
     return product;
   });
 
@@ -93,7 +98,7 @@ export async function adminFetchProductById(id: string): Promise<StoreProduct | 
 
   const { data, error } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), store_categories!category_id(*)")
+    .select("*, store_brands(*), category:store_categories!category_id(*)")
     .eq("id", id)
     .single();
 
@@ -101,7 +106,7 @@ export async function adminFetchProductById(id: string): Promise<StoreProduct | 
 
   const product = productFromRow(data as ProductRow);
   if ((data as any).store_brands) product.brand = brandFromRow((data as any).store_brands);
-  if ((data as any).store_categories) product.category = categoryFromRow((data as any).store_categories);
+  if ((data as any).category) product.category = categoryFromRow((data as any).category);
 
   // Fetch variants (admin sees all including discontinued)
   const { data: variantData } = await supabase
