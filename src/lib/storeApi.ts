@@ -83,6 +83,7 @@ export async function fetchCategoryBySlug(slug: string): Promise<StoreCategory |
 export interface FetchProductsOptions {
   categorySlug?: string;
   brandId?: string;
+  productType?: string;
   healthGoalTag?: string;
   featured?: boolean;
   search?: string;
@@ -102,6 +103,7 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
   const {
     categorySlug,
     brandId,
+    productType,
     healthGoalTag,
     featured,
     search,
@@ -111,21 +113,36 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
     orderDir = "asc",
   } = opts;
 
+  // When filtering by category slug, first resolve the slug to an id.
+  // PostgREST cannot filter on joined columns (e.g. .eq("category.slug", ...)),
+  // so we do a quick lookup first and then filter by category_id.
+  let resolvedCategoryId: string | null = null;
+  if (categorySlug) {
+    const { data: catData } = await supabase
+      .from("store_categories")
+      .select("id")
+      .eq("slug", categorySlug)
+      .eq("is_active", true)
+      .single();
+    resolvedCategoryId = catData?.id ?? null;
+    // If slug doesn't match any category, bail early — no results possible.
+    if (!resolvedCategoryId) return [];
+  }
+
   let query = supabase
     .from("store_products")
-    .select(
-      categorySlug
-        ? `*, category:store_categories!category_id!inner(slug), store_brands(*), store_product_variants(*)`
-        : `*, category:store_categories!category_id(*), store_brands(*), store_product_variants(*)`
-    )
+    .select(`*, category:store_categories!category_id(*), store_brands(*), store_product_variants(*)`)
     .eq("published", true)
     .eq("availability", "active");
 
-  if (categorySlug) {
-    query = query.eq("category.slug", categorySlug);
+  if (resolvedCategoryId) {
+    query = query.eq("category_id", resolvedCategoryId);
   }
   if (brandId) {
     query = query.eq("brand_id", brandId);
+  }
+  if (productType) {
+    query = query.eq("product_type", productType);
   }
   if (healthGoalTag) {
     query = query.contains("health_goal_tags", [healthGoalTag]);
@@ -170,6 +187,39 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
     }
     return product;
   });
+}
+
+/**
+ * Distinct, non-empty product types among published+active products in a
+ * category — used to render the "Type" filter chips under a category page.
+ * Fine-grained (e.g. "Whey Protein"), separate from the broad category.
+ */
+export async function fetchProductTypesForCategory(categorySlug: string): Promise<string[]> {
+  if (!supabase || !categorySlug) return [];
+
+  const { data: catData } = await supabase
+    .from("store_categories")
+    .select("id")
+    .eq("slug", categorySlug)
+    .eq("is_active", true)
+    .single();
+  if (!catData?.id) return [];
+
+  const { data, error } = await supabase
+    .from("store_products")
+    .select("product_type")
+    .eq("category_id", catData.id)
+    .eq("published", true)
+    .eq("availability", "active")
+    .neq("product_type", "");
+
+  if (error || !data) return [];
+  const set = new Set(
+    (data as { product_type: string }[])
+      .map((r) => r.product_type?.trim())
+      .filter(Boolean) as string[]
+  );
+  return Array.from(set).sort();
 }
 
 /**

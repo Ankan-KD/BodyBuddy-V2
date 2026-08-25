@@ -246,7 +246,12 @@ export function VariantEditor({ variants, onChange }: Props) {
   }
 
   function deleteVariant(i: number) {
-    onChange(variants.filter((_, idx) => idx !== i));
+    const wasDefault = variants[i]?.isDefault;
+    const next = variants.filter((_, idx) => idx !== i);
+    if (wasDefault && next.length > 0 && !next.some(v => v.isDefault)) {
+      next[0] = { ...next[0], isDefault: true };
+    }
+    onChange(next);
   }
 
   function setDefault(i: number) {

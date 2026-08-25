@@ -54,7 +54,7 @@ export async function placeOrder(
       if (!stock) continue;
       if (stock.availability === "out_of_stock" || stock.stock_quantity === 0) {
         throw new Error(
-          `"${item.product.name}${item.variant.variantName ? ` (${item.variant.variantName})` : ""}" is out of stock.`
+          `"${item.product.name}${item.variant.name ? ` (${item.variant.name})` : ""}" is out of stock.`
         );
       }
       if (stock.stock_quantity < item.quantity) {

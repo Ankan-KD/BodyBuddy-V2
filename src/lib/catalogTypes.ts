@@ -40,12 +40,26 @@ export interface CatalogVariant {
  * product. It is never written to the database — only the 4 broad goalTags
  * (weight-gain, weight-loss, muscle-building, general-fitness) are stored
  * as health_goal_tags in Supabase.
+ *
+ * `type` vs `userCategory`:
+ *   - `type`         = fine-grained product type (e.g. "Whey Protein",
+ *                       "Creatine"). Comes from the catalog's `category`
+ *                       CSV column. Stored as `product_type` on the store
+ *                       product — a further filtration option, not the
+ *                       customer-facing category.
+ *   - `userCategory` = broad category the customer actually browses
+ *                       (e.g. "Protein", "Vitamins"). Comes from the
+ *                       catalog's `user_category` CSV column and is matched
+ *                       to a `store_categories` row → `category_id`.
  */
 export interface CatalogPrefill {
   catalogId: string;
   name: string;
   brand: string;
-  category: string;
+  /** Broad customer-facing category (matches store_categories.name) */
+  userCategory: string;
+  /** Fine-grained product type (e.g. "Whey Protein") — further filtration */
+  type: string;
   slug: string;
   shortDescription: string;
   fullDescription: string;
@@ -74,7 +88,12 @@ export interface CatalogProduct {
   productName: string;
   slug: string;
   brand: string;
-  category: string;
+
+  // Category / Type — kept strictly separate (see CatalogPrefill note above)
+  /** Broad customer-facing category, e.g. "Protein" (from `user_category` CSV column) */
+  userCategory: string;
+  /** Fine-grained product type, e.g. "Whey Protein" (from `category` CSV column) */
+  type: string;
 
   // Content
   shortDescription: string;

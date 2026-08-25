@@ -21,7 +21,8 @@ interface CatalogRow {
   product_name: string;
   slug: string;
   brand: string;
-  category: string;
+  category: string;       // fine-grained TYPE (e.g. "Whey Protein") — further filtration, not the customer-facing category
+  user_category: string;  // broad customer-facing CATEGORY (e.g. "Protein") — matched to store_categories on import
   short_description: string;
   full_description: string;
   product_status: string;
@@ -220,7 +221,8 @@ function buildCatalog(rows: CatalogRow[]): CatalogProduct[] {
         productName: row.product_name?.trim() ?? "",
         slug: row.slug?.trim() ?? "",
         brand: row.brand?.trim() ?? "",
-        category: row.category?.trim() ?? "",
+        type: row.category?.trim() ?? "",
+        userCategory: row.user_category?.trim() ?? "",
         shortDescription: row.short_description?.trim() ?? "",
         fullDescription: row.full_description?.trim() ?? "",
         productStatus: row.product_status?.trim() ?? "active",
@@ -317,11 +319,23 @@ export async function getProductCatalog(): Promise<CatalogProduct[]> {
 }
 
 /**
- * Get the unique categories present in the catalog.
+ * Get the unique fine-grained TYPES present in the catalog
+ * (from the `category` CSV column — further filtration, not the
+ * customer-facing category).
  */
-export async function getCatalogCategories(): Promise<string[]> {
+export async function getCatalogTypes(): Promise<string[]> {
   const catalog = await getProductCatalog();
-  const set = new Set(catalog.map((p) => p.category).filter(Boolean));
+  const set = new Set(catalog.map((p) => p.type).filter(Boolean));
+  return Array.from(set).sort();
+}
+
+/**
+ * Get the unique broad customer-facing CATEGORIES present in the catalog
+ * (from the `user_category` CSV column — matched to store_categories).
+ */
+export async function getCatalogUserCategories(): Promise<string[]> {
+  const catalog = await getProductCatalog();
+  const set = new Set(catalog.map((p) => p.userCategory).filter(Boolean));
   return Array.from(set).sort();
 }
 
@@ -331,11 +345,14 @@ export async function getCatalogCategories(): Promise<string[]> {
  */
 export async function searchCatalog(opts: {
   search?: string;
-  category?: string;
+  /** Broad customer-facing category (user_category) */
+  userCategory?: string;
+  /** Fine-grained product type (category) */
+  type?: string;
   goalTag?: string;
 }): Promise<CatalogProduct[]> {
   const catalog = await getProductCatalog();
-  const { search, category, goalTag } = opts;
+  const { search, userCategory, type, goalTag } = opts;
 
   return catalog.filter((p) => {
     if (
@@ -351,7 +368,8 @@ export async function searchCatalog(opts: {
     ) {
       return false;
     }
-    if (category && p.category !== category) return false;
+    if (userCategory && p.userCategory !== userCategory) return false;
+    if (type && p.type !== type) return false;
     if (goalTag && !p.goalTags.includes(goalTag)) return false;
     return true;
   });

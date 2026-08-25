@@ -38,6 +38,7 @@ import {
 export interface AdminFetchProductsOptions {
   search?: string;
   categoryId?: string;
+  productType?: string;
   published?: boolean;
   availability?: string;
   limit?: number;
@@ -49,7 +50,7 @@ export async function adminFetchProducts(
 ): Promise<{ products: StoreProduct[]; total: number }> {
   if (!supabase) return { products: [], total: 0 };
 
-  const { search, categoryId, published, availability, limit = 25, offset = 0 } = opts;
+  const { search, categoryId, productType, published, availability, limit = 25, offset = 0 } = opts;
 
   let query = supabase
     .from("store_products")
@@ -61,6 +62,9 @@ export async function adminFetchProducts(
   }
   if (categoryId) {
     query = query.eq("category_id", categoryId);
+  }
+  if (productType) {
+    query = query.eq("product_type", productType);
   }
   if (published !== undefined) {
     query = query.eq("published", published);
@@ -122,6 +126,46 @@ export async function adminFetchProductById(id: string): Promise<StoreProduct | 
   return product;
 }
 
+/**
+ * Distinct, non-empty product types currently in use across all store
+ * products — used to populate the Type filter dropdown in the admin
+ * products list. Fine-grained (e.g. "Whey Protein", "Creatine"); separate
+ * from the broad customer-facing Category.
+ */
+export async function adminFetchDistinctProductTypes(): Promise<string[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("store_products")
+    .select("product_type")
+    .neq("product_type", "");
+  if (error || !data) return [];
+  const set = new Set(
+    (data as { product_type: string }[])
+      .map((r) => r.product_type?.trim())
+      .filter(Boolean) as string[]
+  );
+  return Array.from(set).sort();
+}
+
+/**
+ * All catalog product_ids that already have a matching store product
+ * (via catalog_source_id) — used by the admin Catalog browser to show
+ * "Already in store" instead of silently allowing duplicate imports.
+ */
+export async function adminFetchImportedCatalogIds(): Promise<Set<string>> {
+  if (!supabase) return new Set();
+  const { data, error } = await supabase
+    .from("store_products")
+    .select("catalog_source_id")
+    .not("catalog_source_id", "is", null);
+  if (error || !data) return new Set();
+  return new Set(
+    (data as { catalog_source_id: string | null }[])
+      .map((r) => r.catalog_source_id)
+      .filter(Boolean) as string[]
+  );
+}
+
 // ── Create / Update / Delete Products ────────────────────────────────────
 
 export interface ProductUpsertPayload {
@@ -129,6 +173,8 @@ export interface ProductUpsertPayload {
   slug: string;
   brand_id: string | null;
   category_id: string | null;
+  product_type: string;
+  catalog_source_id: string | null;
   short_description: string;
   full_description: string;
   usage_info: string;
@@ -419,6 +465,8 @@ export interface InventoryVariantRow {
   productId: string;
   productName: string;
   productAvailability: string;
+  /** Whether the parent product is published (visible to customers). */
+  productPublished: boolean;
 }
 
 export async function adminFetchInventory(opts: {
@@ -435,7 +483,7 @@ export async function adminFetchInventory(opts: {
   let query = supabase
     .from("store_product_variants")
     .select(
-      "id, sku, name, size_label, flavour, stock_quantity, low_stock_threshold, availability, product_id, store_products!inner(id, name, availability)",
+      "id, sku, name, size_label, flavour, stock_quantity, low_stock_threshold, availability, product_id, store_products!inner(id, name, availability, published)",
       { count: "exact" }
     )
     .order("stock_quantity", { ascending: true });
@@ -469,6 +517,7 @@ export async function adminFetchInventory(opts: {
     productId: r.store_products?.id ?? "",
     productName: r.store_products?.name ?? "",
     productAvailability: r.store_products?.availability ?? "",
+    productPublished: r.store_products?.published ?? false,
   }));
 
   if (lowStockOnly) {

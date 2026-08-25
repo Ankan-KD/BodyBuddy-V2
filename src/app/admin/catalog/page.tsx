@@ -212,12 +212,14 @@ function CatalogDetailModal({
   onVariantChange,
   onClose,
   onAddToStore,
+  imported,
 }: {
   product: CatalogProduct;
   selectedVariant: CatalogVariant | null;
   onVariantChange: (v: CatalogVariant) => void;
   onClose: () => void;
   onAddToStore: (p: CatalogProduct, v: CatalogVariant | null) => void;
+  imported: boolean;
 }) {
   const v = selectedVariant;
   const price     = v?.suggestedPriceINR ?? null;
@@ -242,8 +244,13 @@ function CatalogDetailModal({
             }
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.3, color: "var(--a-text)" }}>{product.productName}</p>
-            <p style={{ fontSize: 12, color: "var(--a-text-3)", marginTop: 2 }}>{product.brand} · {product.category}</p>
+            <p style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.3, color: "var(--a-text)", display: "flex", alignItems: "center", gap: 6 }}>
+              {product.productName}
+              {imported && (
+                <span className="a-badge a-badge-green" style={{ fontSize: 9, flexShrink: 0 }}>In Store</span>
+              )}
+            </p>
+            <p style={{ fontSize: 12, color: "var(--a-text-3)", marginTop: 2 }}>{product.brand} · {product.userCategory}{product.type ? ` · ${product.type}` : ""}</p>
             <p style={{ fontSize: 10, color: "var(--a-text-3)", fontFamily: "monospace", marginTop: 2 }}>{product.productId}</p>
           </div>
           <button onClick={onClose} className="a-btn a-btn-ghost a-btn-icon a-btn-sm" aria-label="Close">
@@ -438,10 +445,12 @@ function CatalogTableRow({
   product,
   onSelect,
   onAddToStore,
+  imported,
 }: {
   product: CatalogProduct;
   onSelect: (p: CatalogProduct) => void;
   onAddToStore: (p: CatalogProduct, v: CatalogVariant | null) => void;
+  imported: boolean;
 }) {
   const defaultVariant = product.variants.find(v => v.isDefaultVariant) ?? product.variants[0] ?? null;
   const [selectedVariant, setSelectedVariant] = useState<CatalogVariant | null>(defaultVariant);
@@ -462,7 +471,14 @@ function CatalogTableRow({
             }
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 500, fontSize: 12, color: "var(--a-text)", lineHeight: 1.3, wordBreak: "break-word" }}>{product.productName}</div>
+            <div style={{ fontWeight: 500, fontSize: 12, color: "var(--a-text)", lineHeight: 1.3, wordBreak: "break-word", display: "flex", alignItems: "center", gap: 6 }}>
+              {product.productName}
+              {imported && (
+                <span className="a-badge a-badge-green" style={{ fontSize: 9, flexShrink: 0 }} title="A store product already exists for this catalog entry">
+                  In Store
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: 10, fontFamily: "monospace", color: "var(--a-text-3)", marginTop: 1 }}>{product.productId}</div>
           </div>
         </div>
@@ -471,8 +487,11 @@ function CatalogTableRow({
       {/* Brand */}
       <td style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>{product.brand}</td>
 
-      {/* Category */}
-      <td style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>{product.category}</td>
+      {/* Category (broad, customer-facing) */}
+      <td style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>{product.userCategory}</td>
+
+      {/* Type (fine-grained) */}
+      <td style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>{product.type}</td>
 
       {/* Goals ONLY — Aim is in detail modal */}
       <td style={{ minWidth: 140 }}>
@@ -537,12 +556,12 @@ function CatalogTableRow({
           </button>
           <button
             onClick={() => onAddToStore(product, selectedVariant)}
-            className="a-btn a-btn-primary a-btn-sm"
+            className={`a-btn a-btn-sm ${imported ? "a-btn-secondary" : "a-btn-primary"}`}
             style={{ fontSize: 11, padding: "0 8px" }}
-            title="Add to store"
+            title={imported ? "Already in store — add another product from this catalog entry anyway" : "Add to store"}
           >
             <Plus style={{ width: 12, height: 12 }} />
-            Add
+            {imported ? "Add Another" : "Add"}
           </button>
         </div>
       </td>
@@ -630,13 +649,38 @@ export default function AdminCatalogPage() {
   const [catalog, setCatalog]               = useState<CatalogProduct[]>([]);
   const [loading, setLoading]               = useState(true);
   const [search, setSearch]                 = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState(""); // broad user_category
+  const [typeFilter, setTypeFilter]         = useState(""); // fine-grained type
   const [goalFilter, setGoalFilter]         = useState("");
   const [page, setPage]                     = useState(1);
 
   // Detail modal
   const [selected, setSelected]             = useState<CatalogProduct | null>(null);
   const [modalVariant, setModalVariant]     = useState<CatalogVariant | null>(null);
+
+  // Which catalog product_ids already have a matching store product
+  const [importedIds, setImportedIds] = useState<Set<string>>(new Set());
+  const refreshImportedIds = () => {
+    import("@/lib/storeAdminApi").then(({ adminFetchImportedCatalogIds }) =>
+      adminFetchImportedCatalogIds().then(setImportedIds)
+    );
+  };
+  useEffect(() => { refreshImportedIds(); }, []);
+
+  // Re-check import status when the admin navigates back to this tab/page
+  // (e.g. after adding a product and clicking Back), so the "In Store"
+  // badge doesn't go stale on client-side navigation.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") refreshImportedIds();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refreshImportedIds);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refreshImportedIds);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -654,7 +698,7 @@ export default function AdminCatalogPage() {
   }, []);
 
   // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, categoryFilter, goalFilter]);
+  useEffect(() => { setPage(1); }, [search, categoryFilter, typeFilter, goalFilter]);
 
   function openModal(product: CatalogProduct) {
     setSelected(product);
@@ -662,23 +706,34 @@ export default function AdminCatalogPage() {
     setModalVariant(def);
   }
 
+  // Broad customer-facing categories (user_category)
   const categories = useMemo(() => {
-    const s = new Set(catalog.map(p => p.category).filter(Boolean));
+    const s = new Set(catalog.map(p => p.userCategory).filter(Boolean));
     return Array.from(s).sort();
   }, [catalog]);
+
+  // Fine-grained types (category column) — scoped to the selected broad
+  // category when one is chosen, so the Type dropdown stays relevant.
+  const types = useMemo(() => {
+    const scoped = categoryFilter ? catalog.filter(p => p.userCategory === categoryFilter) : catalog;
+    const s = new Set(scoped.map(p => p.type).filter(Boolean));
+    return Array.from(s).sort();
+  }, [catalog, categoryFilter]);
 
   const filtered = useMemo(() => catalog.filter(p => {
     if (search.trim() &&
       !p.productName.toLowerCase().includes(search.toLowerCase()) &&
       !p.brand.toLowerCase().includes(search.toLowerCase()) &&
-      !p.category.toLowerCase().includes(search.toLowerCase()) &&
+      !p.userCategory.toLowerCase().includes(search.toLowerCase()) &&
+      !p.type.toLowerCase().includes(search.toLowerCase()) &&
       !p.searchTags.some(t => t.toLowerCase().includes(search.toLowerCase())) &&
       !p.aimTags.some(t => t.toLowerCase().includes(search.toLowerCase()))
     ) return false;
-    if (categoryFilter && p.category !== categoryFilter) return false;
+    if (categoryFilter && p.userCategory !== categoryFilter) return false;
+    if (typeFilter && p.type !== typeFilter) return false;
     if (goalFilter && !p.goalTags.includes(goalFilter)) return false;
     return true;
-  }), [catalog, search, categoryFilter, goalFilter]);
+  }), [catalog, search, categoryFilter, typeFilter, goalFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage   = Math.min(page, totalPages);
@@ -691,7 +746,8 @@ export default function AdminCatalogPage() {
       catalog_id:          product.productId,
       name:                product.productName,
       brand:               product.brand,
-      category:            product.category,
+      user_category:       product.userCategory,
+      type:                product.type,
       slug:                product.slug,
       short_description:   product.shortDescription,
       full_description:    product.fullDescription,
@@ -716,7 +772,7 @@ export default function AdminCatalogPage() {
     router.push(`/admin/products/new?${params.toString()}`);
   }
 
-  const hasFilters = !!(search || categoryFilter || goalFilter);
+  const hasFilters = !!(search || categoryFilter || typeFilter || goalFilter);
 
   return (
     <div style={{ maxWidth: 1280 }}>
@@ -754,14 +810,29 @@ export default function AdminCatalogPage() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, brand, category, tag…"
+            placeholder="Search by name, brand, category, type, tag…"
             className="a-search-input"
           />
         </div>
 
-        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="a-filter-select">
+        <select
+          value={categoryFilter}
+          onChange={e => { setCategoryFilter(e.target.value); setTypeFilter(""); }}
+          className="a-filter-select"
+          title="Broad category customers browse on the storefront"
+        >
           <option value="">All Categories</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="a-filter-select"
+          title="Fine-grained product type — further filtration"
+        >
+          <option value="">All Types</option>
+          {types.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
 
         <select value={goalFilter} onChange={e => setGoalFilter(e.target.value)} className="a-filter-select">
@@ -774,7 +845,7 @@ export default function AdminCatalogPage() {
 
         {hasFilters && (
           <button
-            onClick={() => { setSearch(""); setCategoryFilter(""); setGoalFilter(""); }}
+            onClick={() => { setSearch(""); setCategoryFilter(""); setTypeFilter(""); setGoalFilter(""); }}
             className="a-btn a-btn-ghost"
             style={{ height: 32, fontSize: 12, color: "var(--a-danger)" }}
           >
@@ -803,27 +874,29 @@ export default function AdminCatalogPage() {
             <div className="a-empty-icon"><Package style={{ width: 18, height: 18 }} /></div>
             <div className="a-empty-title">No products match</div>
             <div className="a-empty-sub">Try adjusting your search or filters.</div>
-            <button onClick={() => { setSearch(""); setCategoryFilter(""); setGoalFilter(""); }} className="a-btn a-btn-secondary">Clear filters</button>
+            <button onClick={() => { setSearch(""); setCategoryFilter(""); setTypeFilter(""); setGoalFilter(""); }} className="a-btn a-btn-secondary">Clear filters</button>
           </div>
         ) : (
           <>
             <div className="a-table-wrap" style={{ overflowX: "auto" }}>
-              <table className="a-table" style={{ tableLayout: "fixed", width: "100%", minWidth: 860 }}>
+              <table className="a-table" style={{ tableLayout: "fixed", width: "100%", minWidth: 960 }}>
                 <colgroup>
-                  <col style={{ width: "22%" }}/>
-                  <col style={{ width: "10%" }}/>
-                  <col style={{ width: "11%" }}/>
-                  <col style={{ width: "16%" }}/>
-                  <col style={{ width: "17%" }}/>
+                  <col style={{ width: "20%" }}/>
                   <col style={{ width: "9%"  }}/>
-                  <col style={{ width: "7%"  }}/>
+                  <col style={{ width: "10%" }}/>
+                  <col style={{ width: "10%" }}/>
+                  <col style={{ width: "14%" }}/>
+                  <col style={{ width: "15%" }}/>
+                  <col style={{ width: "8%"  }}/>
+                  <col style={{ width: "6%"  }}/>
                   <col style={{ width: "8%"  }}/>
                 </colgroup>
                 <thead>
                   <tr>
                     <th>Product</th>
                     <th>Brand</th>
-                    <th>Category</th>
+                    <th title="Broad category customers browse on the storefront">Category</th>
+                    <th title="Fine-grained product type — further filtration">Type</th>
                     <th>Goals</th>
                     <th>Variant</th>
                     <th>Price</th>
@@ -838,6 +911,7 @@ export default function AdminCatalogPage() {
                       product={product}
                       onSelect={openModal}
                       onAddToStore={(p, v) => handleAddToStore(p, v)}
+                      imported={importedIds.has(product.productId)}
                     />
                   ))}
                 </tbody>
@@ -864,6 +938,7 @@ export default function AdminCatalogPage() {
           onVariantChange={setModalVariant}
           onClose={() => { setSelected(null); setModalVariant(null); }}
           onAddToStore={(p, v) => { setSelected(null); setModalVariant(null); handleAddToStore(p, v); }}
+          imported={importedIds.has(selected.productId)}
         />
       )}
     </div>

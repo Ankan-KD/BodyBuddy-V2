@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useCategoryBySlug, useSubcategories, useProducts } from "@/lib/useStoreData";
+import { useCategoryBySlug, useSubcategories, useProducts, useProductTypesForCategory } from "@/lib/useStoreData";
 import { ProductGrid } from "@/components/store/ProductCard";
 import { CategoryIcon } from "@/components/store/CategoryIcon";
 import { StoreFilterBar, SortOption } from "@/components/store/StoreFilterBar";
@@ -20,18 +20,24 @@ export default function CategoryDetailPage() {
 
   const [sort, setSort] = useState("sort_order");
   const [goal, setGoal] = useState<string | null>(null);
+  const [type, setType] = useState<string | null>(null);
 
   const { data: category, loading: catLoading } = useCategoryBySlug(slug);
   const { data: subcategories } = useSubcategories(category?.id ?? null);
+  const { data: types } = useProductTypesForCategory(slug);
   const { data: products, loading: prodLoading } = useProducts({
     categorySlug: slug,
     limit: 30,
     orderBy: sort as "sort_order" | "rating_average" | "created_at",
     orderDir: sort === "sort_order" ? "asc" : "desc",
     healthGoalTag: goal ?? undefined,
+    productType: type ?? undefined,
   });
 
   const title = category?.name ?? slug.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+
+  // Reset the Type filter when navigating to a different category
+  useEffect(() => { setType(null); }, [slug]);
 
   return (
     <div className="px-4 pt-4">
@@ -77,6 +83,9 @@ export default function CategoryDetailPage() {
         onSortChange={setSort}
         goalValue={goal}
         onGoalChange={setGoal}
+        typeOptions={types}
+        typeValue={type}
+        onTypeChange={setType}
       />
 
       {/* Product count */}

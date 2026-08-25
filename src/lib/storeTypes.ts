@@ -81,6 +81,14 @@ export interface StoreProduct {
   slug: string;
   brandId: string | null;
   categoryId: string | null;
+  /**
+   * Fine-grained product type (e.g. "Whey Protein", "Creatine") — a further
+   * filtration option shown under the broad customer-facing Category
+   * (categoryId → store_categories). Free text, admin-controlled.
+   */
+  productType: string;
+  /** Catalog product_id (e.g. "CAT-0001") this was imported from, if any. Traceability only. */
+  catalogSourceId: string | null;
 
   shortDescription: string;
   fullDescription: string;     // markdown
@@ -223,6 +231,8 @@ export interface ProductRow {
   slug: string;
   brand_id: string | null;
   category_id: string | null;
+  product_type: string;
+  catalog_source_id: string | null;
   short_description: string;
   full_description: string;
   usage_info: string;
@@ -257,6 +267,8 @@ export function productFromRow(r: ProductRow): StoreProduct {
     slug: r.slug,
     brandId: r.brand_id,
     categoryId: r.category_id,
+    productType: r.product_type ?? "",
+    catalogSourceId: r.catalog_source_id ?? null,
     shortDescription: r.short_description,
     fullDescription: r.full_description,
     usageInfo: r.usage_info,

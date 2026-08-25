@@ -219,6 +219,8 @@ interface ProductRow {
   slug: string;
   brand_id: string | null;
   category_id: string | null;
+  product_type: string;
+  catalog_source_id: string | null;
   short_description: string;
   full_description: string;
   usage_info: string;
@@ -278,6 +280,8 @@ function rowToCartItem(row: CartRow): CartItem | null {
     slug: pr.slug,
     brandId: pr.brand_id,
     categoryId: pr.category_id,
+    productType: pr.product_type ?? "",
+    catalogSourceId: pr.catalog_source_id ?? null,
     shortDescription: pr.short_description,
     fullDescription: pr.full_description,
     usageInfo: pr.usage_info,

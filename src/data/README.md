@@ -136,6 +136,12 @@ Supabase → store_products + store_product_variants
 4. **Traceability.** The catalog_product_id (e.g. `CAT-0001`) is passed as
    a query param during import so the form can record where the product
    originated. This is informational only.
+5. **Run migration `supabase/008_product_type_and_categories.sql`** before
+   using the catalog import flow described above — it adds the
+   `product_type` column (Type) to `store_products` and seeds a few extra
+   broad categories (`Weight Management`, `Joint & Recovery`,
+   `Digestive Health`, `Ayurvedic & Herbal`) that some catalog rows'
+   `user_category` values map to.
 
 ### CSV columns
 
@@ -145,7 +151,8 @@ Supabase → store_products + store_product_variants
 | `product_name` | Display name |
 | `slug` | URL-safe slug (suggested; admin can override) |
 | `brand` | Brand name string (matched to store_brands on import) |
-| `category` | Category name string (matched to store_categories on import) |
+| `category` | **Type** (fine-grained), e.g. `Whey Protein`, `Creatine`. Admin-side this is labelled "Type" — a further filtration option under the broad Category, stored as `product_type` on the store product. Kept as `category` here for backward compatibility; nothing was renamed or removed. |
+| `user_category` | **Category** (broad, customer-facing), e.g. `Protein`, `Vitamins`. This is matched to `store_categories` on import and is what customers actually browse on the storefront (`/store/categories/...`). Analogous to how `goals` (broad) relates to `aim` (detailed) — `user_category` is the broad grouping, `category`/Type is the detailed one. |
 | `short_description` | 1–2 sentence summary |
 | `full_description` | Markdown body |
 | `product_status` | Catalog-level hint (`active` / `inactive`) |

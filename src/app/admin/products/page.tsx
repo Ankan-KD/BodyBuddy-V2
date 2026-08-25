@@ -13,8 +13,9 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  ExternalLink,
 } from "lucide-react";
-import { adminFetchProducts, adminDeleteProduct, adminFetchAllCategories, adminToggleFeaturedProduct } from "@/lib/storeAdminApi";
+import { adminFetchProducts, adminDeleteProduct, adminFetchAllCategories, adminFetchDistinctProductTypes, adminToggleFeaturedProduct, adminUpdateProduct } from "@/lib/storeAdminApi";
 import type { StoreProduct, StoreCategory } from "@/lib/storeTypes";
 import { formatPriceINR } from "@/lib/storeTypes";
 
@@ -38,11 +39,25 @@ const PUBLISHED_OPTIONS = [
  * Published = visible to customers on the storefront.
  * Draft     = hidden from customers, admin-only.
  */
-function PublishBadge({ published }: { published: boolean }) {
+function PublishBadge({ published, onToggle }: { published: boolean; onToggle?: () => void }) {
   return published ? (
-    <span className="a-badge a-badge-green" title="Visible to customers">Published</span>
+    <button
+      onClick={onToggle}
+      className="a-badge a-badge-green"
+      title="Visible to customers — click to unpublish"
+      style={{ cursor: onToggle ? "pointer" : "default", border: "none", background: undefined }}
+    >
+      ✓ Live
+    </button>
   ) : (
-    <span className="a-badge a-badge-neutral" title="Hidden from customers">Draft</span>
+    <button
+      onClick={onToggle}
+      className="a-badge a-badge-orange"
+      title="Hidden from customers — click to publish to store"
+      style={{ cursor: onToggle ? "pointer" : "default", border: "none", background: undefined }}
+    >
+      Draft — click to publish
+    </button>
   );
 }
 
@@ -91,27 +106,31 @@ export default function AdminProductsPage() {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [productType, setProductType] = useState("");
   const [published, setPublished] = useState("");
   const [availability, setAvailability] = useState("");
 
   const [categories, setCategories] = useState<StoreCategory[]>([]);
+  const [types, setTypes] = useState<string[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => { adminFetchAllCategories().then(setCategories); }, []);
+  useEffect(() => { adminFetchDistinctProductTypes().then(setTypes); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     const opts: Record<string, unknown> = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
     if (search) opts.search = search;
     if (categoryId) opts.categoryId = categoryId;
+    if (productType) opts.productType = productType;
     if (published !== "") opts.published = published === "true";
     if (availability) opts.availability = availability;
     const result = await adminFetchProducts(opts);
     setProducts(result.products);
     setTotal(result.total);
     setLoading(false);
-  }, [search, categoryId, published, availability, page]);
+  }, [search, categoryId, productType, published, availability, page]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -135,9 +154,14 @@ export default function AdminProductsPage() {
     load();
   }
 
+  async function handleTogglePublished(id: string, current: boolean) {
+    await adminUpdateProduct(id, { published: !current });
+    load();
+  }
+
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const topCategories = categories.filter(c => !c.parentId);
-  const hasFilters = !!(search || categoryId || published || availability);
+  const hasFilters = !!(search || categoryId || productType || published || availability);
 
   return (
     <div style={{ maxWidth: 1100 }}>
@@ -191,6 +215,16 @@ export default function AdminProductsPage() {
         </select>
 
         <select
+          value={productType}
+          onChange={e => { setProductType(e.target.value); setPage(0); }}
+          className="a-filter-select"
+          title="Fine-grained product type — further filtration"
+        >
+          <option value="">All Types</option>
+          {types.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+
+        <select
           value={published}
           onChange={e => { setPublished(e.target.value); setPage(0); }}
           className="a-filter-select"
@@ -208,7 +242,7 @@ export default function AdminProductsPage() {
 
         {hasFilters && (
           <button
-            onClick={() => { setSearch(""); setSearchInput(""); setCategoryId(""); setPublished(""); setAvailability(""); setPage(0); }}
+            onClick={() => { setSearch(""); setSearchInput(""); setCategoryId(""); setProductType(""); setPublished(""); setAvailability(""); setPage(0); }}
             className="a-btn a-btn-ghost"
             style={{ height: 32, fontSize: 12, color: "var(--a-danger)" }}
           >
@@ -247,8 +281,9 @@ export default function AdminProductsPage() {
                     <th style={{ width: 36 }}>#</th>
                     <th>Product</th>
                     <th>Category</th>
+                    <th>Type</th>
                     <th>Variants</th>
-                    <th title="Published = visible to customers. Draft = hidden. Availability = whether it can be purchased.">Status</th>
+                    <th title="Visibility = Published (customers can see it) or Draft (admin-only). Stock = whether it can be added to cart.">Visibility &amp; Stock</th>
                     <th style={{ textAlign: "right" }}>Actions</th>
                   </tr>
                 </thead>
@@ -291,6 +326,9 @@ export default function AdminProductsPage() {
                           {product.category?.name ?? "—"}
                         </td>
                         <td style={{ color: "var(--a-text-2)", fontSize: 12 }}>
+                          {product.productType || <span style={{ color: "var(--a-text-4)" }}>—</span>}
+                        </td>
+                        <td style={{ color: "var(--a-text-2)", fontSize: 12 }}>
                           {product.variants && product.variants.length > 0 ? (
                             <div>
                               <span style={{ fontWeight: 500 }}>{product.variants.length} variant{product.variants.length !== 1 ? "s" : ""}</span>
@@ -312,7 +350,10 @@ export default function AdminProductsPage() {
                         </td>
                         <td>
                           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                            <PublishBadge published={product.published} />
+                            <PublishBadge
+                              published={product.published}
+                              onToggle={() => handleTogglePublished(product.id, product.published)}
+                            />
                             <AvailabilityBadge availability={product.availability} />
                           </div>
                         </td>
@@ -321,10 +362,20 @@ export default function AdminProductsPage() {
                             <Link
                               href={`/admin/products/${product.id}/edit`}
                               className="a-btn a-btn-ghost a-btn-icon a-btn-sm"
-                              title="Edit"
+                              title="Edit product"
                             >
                               <Edit2 style={{ width: 13, height: 13 }} />
                             </Link>
+                            {product.published && (
+                              <Link
+                                href={`/store/products/${product.slug}`}
+                                target="_blank"
+                                className="a-btn a-btn-ghost a-btn-icon a-btn-sm"
+                                title="View in store"
+                              >
+                                <ExternalLink style={{ width: 13, height: 13, color: "var(--a-accent)" }} />
+                              </Link>
+                            )}
                             <button
                               onClick={() => handleToggleFeatured(product.id, product.isFeatured)}
                               className="a-btn a-btn-ghost a-btn-icon a-btn-sm"
@@ -366,7 +417,10 @@ export default function AdminProductsPage() {
                     <div style={{ fontWeight: 500, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{product.name}</div>
                     <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>{product.brand?.name ?? "No brand"}</div>
                     <div style={{ display: "flex", gap: 4, marginTop: 5 }}>
-                      <PublishBadge published={product.published} />
+                      <PublishBadge
+                        published={product.published}
+                        onToggle={() => handleTogglePublished(product.id, product.published)}
+                      />
                       <AvailabilityBadge availability={product.availability} />
                     </div>
                   </div>

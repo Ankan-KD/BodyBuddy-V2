@@ -111,6 +111,24 @@ export default function ProductDetailPage() {
           {product.shortDescription && (
             <p className="text-sm text-[var(--text-muted)] mt-1">{product.shortDescription}</p>
           )}
+          {/* Category / Type breadcrumb — connects back into storefront browsing */}
+          {(product.category || product.productType) && (
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {product.category && (
+                <Link
+                  href={`/store/categories/${product.category.slug}`}
+                  className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-300"
+                >
+                  {product.category.name}
+                </Link>
+              )}
+              {product.productType && (
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-full glass-panel border border-[var(--border)] text-[var(--text-muted)]">
+                  {product.productType}
+                </span>
+              )}
+            </div>
+          )}
           {product.ratingCount > 0 && (
             <div className="flex items-center gap-1.5 mt-2">
               <div className="flex">

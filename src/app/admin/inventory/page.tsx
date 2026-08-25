@@ -136,16 +136,15 @@ function InventoryRow({
         <StockBadge qty={row.stockQuantity} threshold={row.lowStockThreshold} />
       </td>
       <td>
-        <span
-          style={{
-            fontSize: 11, textTransform: "capitalize",
-            color: row.availability === "active" ? "var(--a-success)"
-              : row.availability === "out_of_stock" ? "var(--a-error)"
-              : "var(--a-text-muted)",
-          }}
-        >
-          {row.availability.replace(/_/g, " ")}
-        </span>
+        {row.productPublished ? (
+          <span className="a-badge a-badge-green" title="Customers can see and buy this product">
+            ✓ Live in store
+          </span>
+        ) : (
+          <span className="a-badge a-badge-orange" title="Product is set to Draft — not visible to customers. Go to Products → edit to publish.">
+            Draft — not visible
+          </span>
+        )}
       </td>
       <td style={{ textAlign: "right" }}>
         {!editing && (
@@ -339,8 +338,8 @@ export default function AdminInventoryPage() {
                 <th>Variant</th>
                 <th>SKU</th>
                 <th>Stock Qty</th>
-                <th>Status</th>
-                <th>Availability</th>
+                <th title="Whether this variant is in stock, low, or sold out">Stock Status</th>
+                <th title="Whether the product is visible to customers in the store">Store Visibility</th>
                 <th style={{ textAlign: "right" }}>Action</th>
               </tr>
             </thead>

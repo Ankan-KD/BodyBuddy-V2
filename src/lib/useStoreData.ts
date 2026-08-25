@@ -19,6 +19,7 @@ import {
   fetchProductsByIds,
   fetchDealProducts,
   fetchVariantsByProductId,
+  fetchProductTypesForCategory,
   searchProductNames,
   fetchBrands,
   FetchProductsOptions,
@@ -89,6 +90,15 @@ export function useCategoryBySlug(slug: string | null) {
     () => (slug ? fetchCategoryBySlug(slug) : Promise.resolve(null)),
     [slug],
     null
+  );
+}
+
+/** Distinct product Types available within a category — for filter chips. */
+export function useProductTypesForCategory(categorySlug: string | null) {
+  return useAsync<string[]>(
+    () => (categorySlug ? fetchProductTypesForCategory(categorySlug) : Promise.resolve([])),
+    [categorySlug],
+    []
   );
 }
 

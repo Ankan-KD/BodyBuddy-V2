@@ -20,7 +20,7 @@ const ICON_OPTIONS = [
   "Tag", "Dumbbell", "Flame", "Leaf", "Pill", "Zap",
   "Apple", "Heart", "Droplets", "Moon", "Activity", "ShoppingBag",
   "Star", "Award", "Coffee", "Wind", "Layers", "Box",
-  "Shield", "Truck", "Globe", "Cpu",
+  "Shield", "Truck", "Globe", "Cpu", "Scale",
 ];
 
 const EMPTY_FORM: CategoryUpsertPayload = {
@@ -278,7 +278,7 @@ export default function AdminCategoriesPage() {
         <div>
           <div className="a-page-title">Categories</div>
           <div className="a-page-subtitle">
-            Manage store categories and subcategories — {categories.length} total
+            Manage store categories that customers browse on the storefront — {categories.length} total. For fine-grained product types (e.g. &quot;Whey Protein&quot;), use the <strong>Type</strong> field on each product.
           </div>
         </div>
         <button className="a-btn a-btn-primary" onClick={openNew}>

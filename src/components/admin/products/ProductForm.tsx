@@ -26,6 +26,7 @@ import {
   adminDeleteVariant,
   adminFetchAllCategories,
   adminFetchAllBrands,
+  adminFetchDistinctProductTypes,
   adminCreateBrand,
   generateSlug,
 } from "@/lib/storeAdminApi";
@@ -64,6 +65,21 @@ function SectionHeading({ title, icon: Icon }: { title: string; icon: React.Elem
   );
 }
 
+/** Turn raw Postgres/Supabase error text into something an admin can act on. */
+function friendlyDbError(raw: string | null): string | null {
+  if (!raw) return raw;
+  if (/duplicate key.*slug/i.test(raw) || /store_products_slug/i.test(raw)) {
+    return "That URL slug is already used by another product. Please choose a different slug.";
+  }
+  if (/duplicate key.*sku/i.test(raw) || /store_product_variants_sku/i.test(raw)) {
+    return "One of these SKUs is already used by another product variant. SKUs must be unique store-wide.";
+  }
+  if (/duplicate key/i.test(raw)) {
+    return "That value is already in use elsewhere — please choose something unique.";
+  }
+  return raw;
+}
+
 // ── Main form ─────────────────────────────────────────────────────────────
 
 interface Props {
@@ -84,6 +100,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   const [slugTouched, setSlugTouched] = useState(isEdit || !!pre?.slug);
   const [brandId, setBrandId] = useState(product?.brandId ?? "");
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
+  const [productType, setProductType] = useState(product?.productType ?? pre?.type ?? "");
   const [shortDescription, setShortDescription] = useState(product?.shortDescription ?? pre?.shortDescription ?? "");
   const [fullDescription, setFullDescription] = useState(product?.fullDescription ?? pre?.fullDescription ?? "");
   const [usageInfo, setUsageInfo] = useState(product?.usageInfo ?? pre?.usageInfo ?? "");
@@ -94,11 +111,13 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   const [tagInput, setTagInput] = useState("");
   const [healthGoalTags, setHealthGoalTags] = useState<string[]>(product?.healthGoalTags ?? pre?.goalTags ?? []);
   const [isFeatured, setIsFeatured] = useState(product?.isFeatured ?? false);
-  const [published, setPublished] = useState(product?.published ?? false);
+  // When adding from catalog, default to published so the product is immediately visible in the store.
+  // For a blank new product (no pre), keep Draft (false) so admins can finish setup first.
+  const [published, setPublished] = useState(product?.published ?? (pre != null ? true : false));
   const [availability, setAvailability] = useState<"active" | "inactive" | "out_of_stock" | "discontinued">(product?.availability ?? "active");
   const [sortOrder, setSortOrder] = useState(product?.sortOrder ?? 0);
   // Traceability: remember which catalog entry this product was imported from
-  const [catalogSourceId] = useState(pre?.catalogId ?? "");
+  const [catalogSourceId] = useState(product?.catalogSourceId ?? pre?.catalogId ?? "");
 
   // Nutrition
   const n = product?.nutrition;
@@ -157,6 +176,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   // Meta
   const [categories, setCategories] = useState<StoreCategory[]>([]);
   const [brands, setBrands] = useState<StoreBrand[]>([]);
+  const [existingTypes, setExistingTypes] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -166,9 +186,10 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   useEffect(() => {
     adminFetchAllCategories().then(cats => {
       setCategories(cats);
-      // When coming from catalog, try to resolve the category name string → ID
-      if (!isEdit && pre?.category && !categoryId) {
-        const needle = pre.category.toLowerCase();
+      // When coming from catalog, try to resolve the broad user-facing
+      // category name string (userCategory) → store_categories ID.
+      if (!isEdit && pre?.userCategory && !categoryId) {
+        const needle = pre.userCategory.toLowerCase();
         const match = cats.find(c => c.name.toLowerCase() === needle || c.slug.toLowerCase() === needle);
         if (match) setCategoryId(match.id);
       }
@@ -182,6 +203,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
         if (match) setBrandId(match.id);
       }
     });
+    adminFetchDistinctProductTypes().then(setExistingTypes);
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-generate slug from name
@@ -221,6 +243,8 @@ export function ProductForm({ product, catalogPrefill }: Props) {
       slug: slug.trim() || generateSlug(name.trim()),
       brand_id: brandId || null,
       category_id: categoryId || null,
+      product_type: productType.trim(),
+      catalog_source_id: catalogSourceId || null,
       short_description: shortDescription.trim(),
       full_description: fullDescription.trim(),
       usage_info: usageInfo.trim(),
@@ -248,8 +272,14 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setError("Product name is required"); return; }
+    if (!slug.trim()) { setError("URL slug is required"); return; }
+    if (published && !categoryId) { setError("Pick a Category before publishing — customers browse by Category on the storefront. Save as Draft if you want to finish this later."); return; }
+    if (variants.length === 0) { setError("At least one variant is required"); return; }
     if (variants.some(v => !v.sku.trim())) { setError("All variants must have a SKU"); return; }
     if (variants.some(v => v.pricePaise <= 0)) { setError("All variants must have a price greater than 0"); return; }
+    if (!variants.some(v => v.isDefault)) { setError("Mark one variant as the default (star icon)"); return; }
+    const skus = variants.map(v => v.sku.trim().toLowerCase());
+    if (new Set(skus).size !== skus.length) { setError("Variant SKUs must be unique"); return; }
 
     setSaving(true);
     setError(null);
@@ -258,11 +288,11 @@ export function ProductForm({ product, catalogPrefill }: Props) {
 
     if (isEdit && product) {
       const { product: updated, error: err } = await adminUpdateProduct(product.id, buildPayload());
-      if (err || !updated) { setError(err ?? "Failed to update product"); setSaving(false); return; }
+      if (err || !updated) { setError(friendlyDbError(err) ?? "Failed to update product"); setSaving(false); return; }
       productId = updated.id;
     } else {
       const { product: created, error: err } = await adminCreateProduct(buildPayload() as Parameters<typeof adminCreateProduct>[0]);
-      if (err || !created) { setError(err ?? "Failed to create product"); setSaving(false); return; }
+      if (err || !created) { setError(friendlyDbError(err) ?? "Failed to create product"); setSaving(false); return; }
       productId = created.id;
     }
 
@@ -298,7 +328,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
         await adminUpdateVariant(v.id, payload);
       } else {
         const { error: ve } = await adminCreateVariant(payload);
-        if (ve) { setError(`Variant error: ${ve}`); setSaving(false); return; }
+        if (ve) { setError(friendlyDbError(ve) ?? "Failed to save a variant"); setSaving(false); return; }
       }
     }
 
@@ -440,8 +470,8 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             )}
           </Field>
 
-          {/* Category */}
-          <Field label="Category">
+          {/* Category (broad, customer-facing — what shoppers browse) */}
+          <Field label={`Category${published ? " *" : ""}`} hint="Broad category shoppers browse on the storefront — required to publish">
             <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="a-form-input w-full">
               <option value="">No category</option>
               <optgroup label="Top-level">
@@ -453,6 +483,21 @@ export function ProductForm({ product, catalogPrefill }: Props) {
                 </optgroup>
               )}
             </select>
+          </Field>
+
+          {/* Type (fine-grained — further filtration under Category) */}
+          <Field label="Type" hint='Fine-grained type, e.g. "Whey Protein", "Creatine" — shown as a filter under Category'>
+            <input
+              type="text"
+              value={productType}
+              onChange={e => setProductType(e.target.value)}
+              placeholder="e.g. Whey Protein"
+              className="a-form-input w-full"
+              list="product-type-suggestions"
+            />
+            <datalist id="product-type-suggestions">
+              {existingTypes.map(t => <option key={t} value={t} />)}
+            </datalist>
           </Field>
 
           <Field label="Sort Order" hint="Lower = shown first">

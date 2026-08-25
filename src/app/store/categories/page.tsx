@@ -16,6 +16,8 @@ const CATEGORY_COLORS: Record<string, { text: string; bg: string }> = {
   Droplets:  { text: "text-cyan-500 dark:text-cyan-400",     bg: "bg-cyan-500/10" },
   Moon:      { text: "text-indigo-500 dark:text-indigo-400", bg: "bg-indigo-500/10" },
   Activity:  { text: "text-nova-500 dark:text-nova-400",     bg: "bg-nova-500/10" },
+  Scale:     { text: "text-teal-500 dark:text-teal-400",     bg: "bg-teal-500/10" },
+  ShoppingBag: { text: "text-amber-500 dark:text-amber-400", bg: "bg-amber-500/10" },
 };
 
 export default function CategoriesPage() {
