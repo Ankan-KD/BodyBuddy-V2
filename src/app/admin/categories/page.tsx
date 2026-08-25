@@ -83,9 +83,9 @@ function CategoryFormModal({
           )}
 
           <div className="a-form-field">
-            <label className="a-form-label">Parent Category</label>
+            <label className="a-form-label">Belongs Under</label>
             <select className="a-form-input" value={form.parent_id??""} onChange={e=>set("parent_id",e.target.value||null)}>
-              <option value="">— Top-level category —</option>
+              <option value="">— Standalone Category —</option>
               {topLevel.filter(c=>c.id!==editingId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
@@ -264,7 +264,7 @@ export default function AdminCategoriesPage() {
         <div style={{position:"fixed",inset:0,zIndex:60,background:"rgba(15,23,42,0.50)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div className="admin-shell" style={{background:"var(--a-surface)",borderRadius:"var(--a-radius-lg)",border:"1px solid var(--a-border)",padding:"24px 28px",maxWidth:400,width:"100%",boxShadow:"var(--a-shadow-md)"}}>
             <div style={{fontSize:15,fontWeight:700,marginBottom:8,color:"var(--a-text)"}}>Delete category?</div>
-            <p style={{fontSize:13,color:"var(--a-text-3)",marginBottom:24,lineHeight:1.6}}>Products in this category will become uncategorised. Subcategories will also be affected.</p>
+            <p style={{fontSize:13,color:"var(--a-text-3)",marginBottom:24,lineHeight:1.6}}>Products in this Category will become uncategorised. Any Sub-Categories under it will also be affected.</p>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
               <button className="a-btn a-btn-secondary" onClick={()=>setDeleteId(null)}>Cancel</button>
               <button className="a-btn a-btn-danger-solid" onClick={handleDelete} disabled={deleting}>{deleting?"Deleting…":"Delete"}</button>
@@ -278,7 +278,7 @@ export default function AdminCategoriesPage() {
         <div>
           <div className="a-page-title">Categories</div>
           <div className="a-page-subtitle">
-            Manage store categories that customers browse on the storefront — {categories.length} total. For fine-grained product types (e.g. &quot;Whey Protein&quot;), use the <strong>Type</strong> field on each product.
+            Manage the Categories customers browse on the storefront — {categories.length} total. For fine-grained product types (e.g. &quot;Whey Protein&quot;), use the <strong>Type</strong> field on each product.
           </div>
         </div>
         <button className="a-btn a-btn-primary" onClick={openNew}>

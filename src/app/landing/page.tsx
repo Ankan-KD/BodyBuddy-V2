@@ -1,22 +1,22 @@
 "use client";
 
-import Link from "next/link";
 import { AppIcon } from "@/components/AppIcon";
 import { Button } from "@/components/ui/button";
 import { getCategoryStyle } from "@/lib/icons";
 import {
   ArrowRight,
-  Sparkles,
-  Salad,
-  FileText,
-  Trophy,
-  Egg,
-  Milk,
-  Wheat,
   Banana,
-  Droplets,
   ChevronRight,
+  Droplets,
+  Egg,
+  FileText,
+  Milk,
+  Salad,
+  Sparkles,
+  Trophy,
+  Wheat,
 } from "lucide-react";
+import Link from "next/link";
 
 /**
  * Public marketing entry point. Reachable while signed out (see the
@@ -91,6 +91,12 @@ export default function LandingPage() {
             className="text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
           >
             Log in
+          </Link>
+          <Link
+            href="/admin/login"
+            className="text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
+            Admin
           </Link>
         </nav>
 

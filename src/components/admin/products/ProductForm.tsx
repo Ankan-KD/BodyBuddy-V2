@@ -273,7 +273,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
     e.preventDefault();
     if (!name.trim()) { setError("Product name is required"); return; }
     if (!slug.trim()) { setError("URL slug is required"); return; }
-    if (published && !categoryId) { setError("Pick a Category before publishing — customers browse by Category on the storefront. Save as Draft if you want to finish this later."); return; }
+    if (published && !categoryId) { setError("Select a Category before publishing — customers browse by Category on the storefront. Save as Draft if you want to finish this later."); return; }
     if (variants.length === 0) { setError("At least one variant is required"); return; }
     if (variants.some(v => !v.sku.trim())) { setError("All variants must have a SKU"); return; }
     if (variants.some(v => v.pricePaise <= 0)) { setError("All variants must have a price greater than 0"); return; }
@@ -470,23 +470,23 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             )}
           </Field>
 
-          {/* Category (broad, customer-facing — what shoppers browse) */}
-          <Field label={`Category${published ? " *" : ""}`} hint="Broad category shoppers browse on the storefront — required to publish">
+          {/* Category (broad, customer-facing — what shoppers browse by on the storefront) */}
+          <Field label={`Category${published ? " *" : ""}`} hint="The Category customers browse on the storefront — required to publish">
             <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="a-form-input w-full">
               <option value="">No category</option>
-              <optgroup label="Top-level">
+              <optgroup label="Categories">
                 {topCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </optgroup>
               {subCategories.length > 0 && (
-                <optgroup label="Subcategories">
+                <optgroup label="Sub-Categories">
                   {subCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </optgroup>
               )}
             </select>
           </Field>
 
-          {/* Type (fine-grained — further filtration under Category) */}
-          <Field label="Type" hint='Fine-grained type, e.g. "Whey Protein", "Creatine" — shown as a filter under Category'>
+          {/* Type (fine-grained product type — further filtration within a Category) */}
+          <Field label="Type" hint='e.g. "Whey Protein", "Creatine" — shown as a filter chip within the Category page'>
             <input
               type="text"
               value={productType}

@@ -177,7 +177,7 @@ export default function AdminSettingsPage() {
           </div>
           <div style={{ padding: "18px 20px" }}>
             <p style={{ fontSize: 13, color: "var(--a-text-3)", marginBottom: 14 }}>
-              Select which top-level categories appear in the featured section on the store home page.
+              Select which Categories appear in the featured section on the store home page.
               You can also mark categories as featured from the Categories page.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>

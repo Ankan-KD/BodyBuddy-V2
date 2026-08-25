@@ -33,7 +33,7 @@ export function ImageUploader({ images, onChange, productSlug }: Props) {
       // Fall back to object URLs for preview when storage isn't configured
       const objectUrls = files.map(f => URL.createObjectURL(f));
       onChange([...images, ...objectUrls]);
-      setUploadError(`Storage not configured — using preview URLs. Set up Supabase Storage bucket "store-images" for persistent images.`);
+      setUploadError(`Images added as local preview. To make them permanent, set up a Supabase Storage bucket named "store-images". You can also use the "Add image by URL" option below.`);
     } else {
       onChange([...images, ...urls]);
     }

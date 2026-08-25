@@ -160,7 +160,8 @@ export default function AdminProductsPage() {
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const topCategories = categories.filter(c => !c.parentId);
+  const mainCategories = categories.filter(c => !c.parentId);
+  const subCategories = categories.filter(c => !!c.parentId);
   const hasFilters = !!(search || categoryId || productType || published || availability);
 
   return (
@@ -211,7 +212,16 @@ export default function AdminProductsPage() {
           className="a-filter-select"
         >
           <option value="">All Categories</option>
-          {topCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {mainCategories.length > 0 && (
+            <optgroup label="Categories">
+              {mainCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </optgroup>
+          )}
+          {subCategories.length > 0 && (
+            <optgroup label="Sub-Categories">
+              {subCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </optgroup>
+          )}
         </select>
 
         <select

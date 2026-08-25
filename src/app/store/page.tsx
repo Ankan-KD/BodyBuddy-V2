@@ -126,13 +126,15 @@ export default function StorePage() {
       {/* ── Phase 10: Personalised Goal Section ── */}
       <PersonalizedSection />
 
-      {/* Categories */}
+      {/* Categories — always shown, all active Categories, regardless of whether they have products yet */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display text-lg font-semibold">Categories</h2>
-          <Link href="/store/categories" className="text-xs text-amber-500 dark:text-amber-400 font-medium flex items-center gap-0.5">
-            See all <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
+          {categories.length > 8 && (
+            <Link href="/store/categories" className="text-xs text-amber-500 dark:text-amber-400 font-medium flex items-center gap-0.5">
+              See all <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          )}
         </div>
 
         {catLoading ? (
@@ -144,9 +146,13 @@ export default function StorePage() {
               </div>
             ))}
           </div>
+        ) : categories.length === 0 ? (
+          <div className="glass-panel border border-[var(--border)] rounded-2xl p-4 text-center">
+            <p className="text-sm text-[var(--text-muted)]">No categories set up yet.</p>
+          </div>
         ) : (
           <div className="grid grid-cols-4 gap-2">
-            {categories.slice(0, 3).map((cat) => (
+            {categories.slice(0, 8).map((cat) => (
               <Link key={cat.id} href={`/store/categories/${cat.slug}`}>
                 <div className="flex flex-col items-center gap-2 glass-panel border border-[var(--border)] rounded-2xl p-3 active:scale-95 transition-transform">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-amber-500/10">
@@ -156,14 +162,6 @@ export default function StorePage() {
                 </div>
               </Link>
             ))}
-            <Link href="/store/categories">
-              <div className="flex flex-col items-center gap-2 glass-panel border border-[var(--border)] rounded-2xl p-3 active:scale-95 transition-transform">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-nova-500/10">
-                  <Tag className="w-5 h-5 text-nova-500 dark:text-nova-400" />
-                </div>
-                <span className="text-[10px] font-medium text-center leading-tight">All</span>
-              </div>
-            </Link>
           </div>
         )}
       </section>

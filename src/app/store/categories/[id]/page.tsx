@@ -93,10 +93,11 @@ export default function CategoryDetailPage() {
         <p className="text-xs text-[var(--text-muted)] mb-3">{products.length} products</p>
       )}
 
+      {/* Always render the grid — shows empty state when no products, but the Category is still visible above */}
       <ProductGrid
         products={products}
         loading={prodLoading}
-        emptyMessage={`No products in ${title} yet.`}
+        emptyMessage={`No products added to ${title} yet. Check back soon!`}
       />
 
       <div className="h-4" />
