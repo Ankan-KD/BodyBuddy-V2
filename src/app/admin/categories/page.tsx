@@ -1,148 +1,158 @@
 "use client";
 
+// ════════════════════════════════════════════════════════════════════════
+// Admin — Product Groups & Product Types
+//
+// Replaces the old "Categories" page.
+//   user_category → Product Group   (broad: "Protein", "Vitamins")
+//   category      → Product Type    (fine-grained: "Whey Protein", "Creatine")
+//
+// Both are fetched from the database. Renaming either cascades to all
+// products using that classification. No deletion (would orphan products).
+// ════════════════════════════════════════════════════════════════════════
+
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Plus, Search, Tag, Edit2, Trash2, RefreshCw,
-  ChevronRight, Eye, EyeOff, Star, StarOff,
-  ArrowUp, ArrowDown, X, AlertTriangle,
+  Plus, Search, RefreshCw, Edit2, X, Check,
+  ChevronRight, AlertTriangle, Info, Layers, Tag,
 } from "lucide-react";
 import {
-  adminFetchAllCategories,
-  adminCreateCategory,
-  adminUpdateCategory,
-  adminDeleteCategory,
-  adminReorderCategories,
-  type CategoryUpsertPayload,
-} from "@/lib/storeAdminApi";
-import type { StoreCategory } from "@/lib/storeTypes";
+  fetchAllProductGroups,
+  fetchAllProductTypes,
+  createProductGroup,
+  updateProductGroup,
+  createProductType,
+  updateProductType,
+  type ProductGroup,
+  type ProductType,
+} from "@/lib/catalogueAdminApi";
 
-const ICON_OPTIONS = [
-  "Tag", "Dumbbell", "Flame", "Leaf", "Pill", "Zap",
-  "Apple", "Heart", "Droplets", "Moon", "Activity", "ShoppingBag",
-  "Star", "Award", "Coffee", "Wind", "Layers", "Box",
-  "Shield", "Truck", "Globe", "Cpu", "Scale",
-];
+// ── Toast ─────────────────────────────────────────────────────────────────
 
-const EMPTY_FORM: CategoryUpsertPayload = {
-  parent_id: null,
-  slug: "",
-  name: "",
-  description: "",
-  icon_key: "Tag",
-  image_url: null,
-  sort_order: 0,
-  is_active: true,
-  is_featured: false,
-};
-
-function slugify(str: string): string {
-  return str.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+function Toast({ msg, type }: { msg: string; type: "success" | "error" }) {
+  return (
+    <div style={{
+      position: "fixed", top: 16, right: 16, zIndex: 100, padding: "10px 16px",
+      borderRadius: "var(--a-radius-md)", fontSize: 13, fontWeight: 500,
+      background: type === "success" ? "var(--a-success-bg)" : "var(--a-danger-bg)",
+      color: type === "success" ? "var(--a-success-text)" : "var(--a-danger-text)",
+      border: `1px solid ${type === "success" ? "var(--a-success-border)" : "var(--a-danger-border)"}`,
+      boxShadow: "var(--a-shadow-md)",
+    }}>
+      {msg}
+    </div>
+  );
 }
 
-function CategoryFormModal({
-  initial,
-  topLevel,
+// ── Inline rename form ────────────────────────────────────────────────────
+
+function InlineRenameForm({
+  currentName,
   onSave,
   onCancel,
-  saving,
-  error,
-  isEdit,
-  editingId,
 }: {
-  initial: Partial<CategoryUpsertPayload>;
-  topLevel: StoreCategory[];
-  onSave: (p: CategoryUpsertPayload) => Promise<void>;
+  currentName: string;
+  onSave: (name: string) => Promise<void>;
   onCancel: () => void;
-  saving: boolean;
-  error: string | null;
-  isEdit?: boolean;
-  editingId?: string;
 }) {
-  const [form, setForm] = useState<CategoryUpsertPayload>({ ...EMPTY_FORM, ...initial });
-  const [slugManual, setSlugManual] = useState(!!initial.slug);
+  const [name, setName] = useState(currentName);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function set(k: keyof CategoryUpsertPayload, v: unknown) {
-    setForm((f) => ({ ...f, [k]: v }));
+  async function handleSave() {
+    const trimmed = name.trim();
+    if (!trimmed) { setError("Name cannot be empty"); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(trimmed);
+    } catch (e) {
+      setError((e as Error).message);
+      setSaving(false);
+    }
   }
 
   return (
-    <div style={{ position:"fixed",inset:0,zIndex:60,background:"rgba(15,23,42,0.50)",display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
-      <div className="admin-shell" style={{ background:"var(--a-surface)",borderRadius:"var(--a-radius-lg)",border:"1px solid var(--a-border)",boxShadow:"var(--a-shadow-md)",width:"100%",maxWidth:540,maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden" }}>
-        {/* Modal header */}
-        <div style={{ padding:"16px 20px",borderBottom:"1px solid var(--a-border)",display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--a-surface-2)" }}>
-          <div style={{ fontWeight:700,fontSize:15,color:"var(--a-text)" }}>{isEdit ? "Edit Category" : "New Category"}</div>
-          <button className="a-btn a-btn-ghost a-btn-icon a-btn-sm" onClick={onCancel}><X style={{width:15,height:15}} /></button>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {error && <div style={{ fontSize: 11, color: "var(--a-danger)" }}>{error}</div>}
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onCancel(); }}
+          style={{ fontSize: 13, padding: "4px 8px", borderRadius: "var(--a-radius)", border: "1px solid var(--a-primary)", outline: "none", flex: 1 }}
+        />
+        <button onClick={handleSave} disabled={saving} className="a-btn a-btn-primary a-btn-sm">
+          {saving ? <RefreshCw style={{ width: 11, height: 11 }} className="animate-spin" /> : <Check style={{ width: 11, height: 11 }} />}
+          Save
+        </button>
+        <button onClick={onCancel} className="a-btn a-btn-ghost a-btn-icon a-btn-sm">
+          <X style={{ width: 11, height: 11 }} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
-        {/* Modal body */}
-        <div style={{ flex:1,overflowY:"auto",padding:"20px 20px 8px",display:"flex",flexDirection:"column",gap:14 }}>
-          {error && (
-            <div className="a-alert a-alert-error">
-              <AlertTriangle style={{width:14,height:14,flexShrink:0}} />{error}
-            </div>
-          )}
+// ── New item form ─────────────────────────────────────────────────────────
 
-          <div className="a-form-field">
-            <label className="a-form-label">Belongs Under</label>
-            <select className="a-form-input" value={form.parent_id??""} onChange={e=>set("parent_id",e.target.value||null)}>
-              <option value="">— Standalone Category —</option>
-              {topLevel.filter(c=>c.id!==editingId).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
+function AddForm({
+  label,
+  onAdd,
+  onCancel,
+  groupOptions,
+}: {
+  label: string;
+  onAdd: (name: string, groupId?: string) => Promise<void>;
+  onCancel: () => void;
+  groupOptions?: ProductGroup[];
+}) {
+  const [name, setName] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-          <div className="a-form-field">
-            <label className="a-form-label">Name *</label>
-            <input required className="a-form-input" placeholder="e.g. Protein Supplements" value={form.name}
-              onChange={e=>{set("name",e.target.value);if(!slugManual)set("slug",slugify(e.target.value));}} />
-          </div>
+  async function handleAdd() {
+    const trimmed = name.trim();
+    if (!trimmed) { setError("Name is required"); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      await onAdd(trimmed, groupId || undefined);
+      onCancel();
+    } catch (e) {
+      setError((e as Error).message);
+      setSaving(false);
+    }
+  }
 
-          <div className="a-form-field">
-            <label className="a-form-label">Slug *</label>
-            <input required className="a-form-input" placeholder="protein-supplements" value={form.slug}
-              onChange={e=>{setSlugManual(true);set("slug",slugify(e.target.value));}} />
-            <span className="a-form-hint">URL-safe identifier. Auto-generated from name.</span>
-          </div>
-
-          <div className="a-form-field">
-            <label className="a-form-label">Description</label>
-            <textarea className="a-form-input" rows={2} placeholder="Short description" value={form.description} onChange={e=>set("description",e.target.value)} />
-          </div>
-
-          <div className="a-form-field">
-            <label className="a-form-label">Icon</label>
-            <select className="a-form-input" value={form.icon_key} onChange={e=>set("icon_key",e.target.value)}>
-              {ICON_OPTIONS.map(k=><option key={k} value={k}>{k}</option>)}
-            </select>
-          </div>
-
-          <div className="a-form-field">
-            <label className="a-form-label">Image URL</label>
-            <input className="a-form-input" placeholder="https://…" value={form.image_url??""} onChange={e=>set("image_url",e.target.value||null)} />
-          </div>
-
-          <div className="a-form-field">
-            <label className="a-form-label">Sort Order</label>
-            <input type="number" className="a-form-input" value={form.sort_order} onChange={e=>set("sort_order",Number(e.target.value))} min={0} />
-            <span className="a-form-hint">Lower = displayed first.</span>
-          </div>
-
-          <div style={{ display:"flex",gap:24,flexWrap:"wrap",paddingBottom:4 }}>
-            <label style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13 }}>
-              <input type="checkbox" checked={form.is_active} onChange={e=>set("is_active",e.target.checked)} />
-              <span style={{color:"var(--a-text-2)",fontWeight:500}}>Active (visible to customers)</span>
-            </label>
-            <label style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13 }}>
-              <input type="checkbox" checked={form.is_featured??false} onChange={e=>set("is_featured",e.target.checked)} />
-              <span style={{color:"var(--a-text-2)",fontWeight:500}}>Featured on Store Home</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Modal footer */}
-        <div style={{ padding:"14px 20px",borderTop:"1px solid var(--a-border)",display:"flex",justifyContent:"flex-end",gap:8,background:"var(--a-surface-2)" }}>
-          <button className="a-btn a-btn-secondary" onClick={onCancel}>Cancel</button>
-          <button className="a-btn a-btn-primary" disabled={saving||!form.name||!form.slug} onClick={()=>onSave(form)}>
-            {saving?"Saving…":isEdit?"Save Changes":"Create Category"}
+  return (
+    <div style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "12px 14px", marginTop: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--a-text)", marginBottom: 10 }}>Add {label}</div>
+      {error && <div style={{ fontSize: 11, color: "var(--a-danger)", marginBottom: 8 }}>{error}</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {groupOptions && (
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="a-filter-select" style={{ height: 32 }}>
+            <option value="">No Product Group (standalone)</option>
+            {groupOptions.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        )}
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") onCancel(); }}
+            placeholder={`${label} name…`}
+            style={{ fontSize: 13, padding: "6px 10px", borderRadius: "var(--a-radius)", border: "1px solid var(--a-border)", outline: "none", flex: 1 }}
+          />
+          <button onClick={handleAdd} disabled={saving} className="a-btn a-btn-primary a-btn-sm">
+            {saving ? <RefreshCw style={{ width: 11, height: 11 }} className="animate-spin" /> : <Plus style={{ width: 11, height: 11 }} />}
+            Add
+          </button>
+          <button onClick={onCancel} className="a-btn a-btn-ghost a-btn-icon a-btn-sm">
+            <X style={{ width: 11, height: 11 }} />
           </button>
         </div>
       </div>
@@ -150,305 +160,323 @@ function CategoryFormModal({
   );
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────
+
 export default function AdminCategoriesPage() {
-  const [categories, setCategories] = useState<StoreCategory[]>([]);
+  const [groups, setGroups] = useState<ProductGroup[]>([]);
+  const [types, setTypes] = useState<ProductType[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [search, setSearch] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<StoreCategory|null>(null);
-  const [formSaving, setFormSaving] = useState(false);
-  const [formError, setFormError] = useState<string|null>(null);
-  const [deleteId, setDeleteId] = useState<string|null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [toast, setToast] = useState<{msg:string;type:"success"|"error"}|null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
-  const load = useCallback(async()=>{
+  // Inline rename state
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
+  const [renamingTypeId, setRenamingTypeId] = useState<string | null>(null);
+
+  // Add form state
+  const [showAddGroup, setShowAddGroup] = useState(false);
+  const [showAddType, setShowAddType] = useState(false);
+
+  function showToast(msg: string, type: "success" | "error" = "success") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  const load = useCallback(async () => {
     setLoading(true);
-    const data = await adminFetchAllCategories();
-    setCategories(data);
+    const [g, t] = await Promise.all([fetchAllProductGroups(), fetchAllProductTypes()]);
+    setGroups(g);
+    setTypes(t);
     setLoading(false);
-  },[]);
+  }, []);
 
-  useEffect(()=>{load();},[load]);
+  useEffect(() => { load(); }, [load]);
 
-  function showToast(msg:string,type:"success"|"error"="success"){
-    setToast({msg,type});
-    setTimeout(()=>setToast(null),3000);
-  }
+  // ── Group handlers ──────────────────────────────────────────────────────
 
-  const topLevel = categories.filter(c=>!c.parentId);
-
-  const filtered = categories.filter(c=>
-    !search||c.name.toLowerCase().includes(search.toLowerCase())||c.slug.includes(search.toLowerCase())
-  );
-
-  const tree = topLevel
-    .sort((a,b)=>a.sortOrder-b.sortOrder)
-    .map(parent=>({
-      ...parent,
-      children: categories.filter(c=>c.parentId===parent.id).sort((a,b)=>a.sortOrder-b.sortOrder),
-    }));
-
-  async function handleSave(payload: CategoryUpsertPayload){
-    setFormSaving(true);setFormError(null);
-    if(editingCategory){
-      const{error}=await adminUpdateCategory(editingCategory.id,payload);
-      if(error){setFormError(error);setFormSaving(false);return;}
-      showToast("Category updated");
-    } else {
-      const{error}=await adminCreateCategory(payload);
-      if(error){setFormError(error);setFormSaving(false);return;}
-      showToast("Category created");
-    }
-    setFormSaving(false);setShowForm(false);setEditingCategory(null);load();
-  }
-
-  async function handleToggleActive(cat:StoreCategory){
-    await adminUpdateCategory(cat.id,{is_active:!cat.isActive});
-    showToast(cat.isActive?"Category hidden":"Category activated");
+  async function handleRenameGroup(id: string, name: string) {
+    const { error } = await updateProductGroup(id, name);
+    if (error) { showToast(error, "error"); throw new Error(error); }
+    showToast("Product Group renamed — all products using it are updated");
+    setRenamingGroupId(null);
     load();
   }
 
-  async function handleToggleFeatured(cat:StoreCategory){
-    const current=(cat as any).isFeatured??false;
-    await adminUpdateCategory(cat.id,{is_featured:!current});
-    showToast(!current?"Marked as featured":"Removed from featured");
+  async function handleAddGroup(name: string) {
+    const { error } = await createProductGroup(name);
+    if (error) { showToast(error, "error"); throw new Error(error); }
+    showToast("Product Group added");
+    setShowAddGroup(false);
     load();
   }
 
-  async function handleMove(cat:StoreCategory,dir:"up"|"down",siblings:StoreCategory[]){
-    const sorted=[...siblings].sort((a,b)=>a.sortOrder-b.sortOrder);
-    const idx=sorted.findIndex(c=>c.id===cat.id);
-    const swapIdx=dir==="up"?idx-1:idx+1;
-    if(swapIdx<0||swapIdx>=sorted.length)return;
-    const swap=sorted[swapIdx];
-    await adminReorderCategories([{id:cat.id,sort_order:swap.sortOrder},{id:swap.id,sort_order:cat.sortOrder}]);
+  // ── Type handlers ───────────────────────────────────────────────────────
+
+  async function handleRenameType(id: string, name: string, groupId?: string | null) {
+    const { error } = await updateProductType(id, name, groupId);
+    if (error) { showToast(error, "error"); throw new Error(error); }
+    showToast("Product Type renamed — all products using it are updated");
+    setRenamingTypeId(null);
     load();
   }
 
-  async function handleDelete(){
-    if(!deleteId)return;
-    setDeleting(true);
-    const err=await adminDeleteCategory(deleteId);
-    setDeleting(false);setDeleteId(null);
-    if(err){showToast(err,"error");return;}
-    showToast("Category deleted");load();
+  async function handleAddType(name: string, groupId?: string) {
+    const { error } = await createProductType(name, groupId ?? null);
+    if (error) { showToast(error, "error"); throw new Error(error); }
+    showToast("Product Type added");
+    setShowAddType(false);
+    load();
   }
 
-  function openEdit(cat:StoreCategory){setEditingCategory(cat);setFormError(null);setShowForm(true);}
-  function openNew(){setEditingCategory(null);setFormError(null);setShowForm(true);}
+  // ── Filter ──────────────────────────────────────────────────────────────
+
+  const q = search.toLowerCase();
+  const filteredGroups = groups.filter((g) => !q || g.name.toLowerCase().includes(q));
+  const filteredTypes  = types.filter((t)  => !q || t.name.toLowerCase().includes(q));
+
+  // Build tree: group → its types
+  const tree = filteredGroups.map((g) => ({
+    ...g,
+    types: types.filter((t) => t.productGroupId === g.id),
+  }));
+  const ungroupedTypes = filteredTypes.filter((t) => !t.productGroupId);
+
+  // Product counts per group/type (derived from types for now)
+  const typesPerGroup = (gid: string) => types.filter((t) => t.productGroupId === gid).length;
 
   return (
-    <div className="a-page">
-      {/* Toast */}
-      {toast&&(
-        <div style={{position:"fixed",top:16,right:16,zIndex:100,padding:"10px 16px",borderRadius:"var(--a-radius-md)",fontSize:13,fontWeight:500,background:toast.type==="success"?"var(--a-success-bg)":"var(--a-danger-bg)",color:toast.type==="success"?"var(--a-success-text)":"var(--a-danger-text)",border:`1px solid ${toast.type==="success"?"var(--a-success-border)":"var(--a-danger-border)"}`,boxShadow:"var(--a-shadow-md)"}}>
-          {toast.msg}
+    <div className="a-page" style={{ maxWidth: 900 }}>
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+
+      {/* Header */}
+      <div className="a-page-header">
+        <div>
+          <div className="a-page-title">Product Groups &amp; Types</div>
+          <div className="a-page-subtitle">
+            Manage the two classification levels used across the whole application.
+            Renaming here updates all products that use that group or type.
+          </div>
         </div>
-      )}
+        <button className="a-btn a-btn-secondary a-btn-icon" onClick={load} title="Refresh">
+          <RefreshCw style={{ width: 13, height: 13 }} className={loading ? "animate-spin" : ""} />
+        </button>
+      </div>
 
-      {showForm&&(
-        <CategoryFormModal
-          initial={editingCategory?{parent_id:editingCategory.parentId,slug:editingCategory.slug,name:editingCategory.name,description:editingCategory.description,icon_key:editingCategory.iconKey,image_url:editingCategory.imageUrl,sort_order:editingCategory.sortOrder,is_active:editingCategory.isActive,is_featured:(editingCategory as any).isFeatured??false}:{}}
-          topLevel={topLevel}
-          onSave={handleSave}
-          onCancel={()=>{setShowForm(false);setEditingCategory(null);setFormError(null);}}
-          saving={formSaving}
-          error={formError}
-          isEdit={!!editingCategory}
-          editingId={editingCategory?.id}
-        />
-      )}
+      {/* Cascade-rename info */}
+      <div className="a-alert a-alert-info" style={{ marginBottom: 16 }}>
+        <Info style={{ width: 14, height: 14, flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 12 }}>
+          <strong>Global cascade:</strong> Renaming a Product Group or Product Type updates <em>all products</em> that use it — in the catalogue, in store products, and on the customer-facing storefront. No deletion is allowed to prevent orphaned products.
+        </div>
+      </div>
 
-      {deleteId&&(
-        <div style={{position:"fixed",inset:0,zIndex:60,background:"rgba(15,23,42,0.50)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div className="admin-shell" style={{background:"var(--a-surface)",borderRadius:"var(--a-radius-lg)",border:"1px solid var(--a-border)",padding:"24px 28px",maxWidth:400,width:"100%",boxShadow:"var(--a-shadow-md)"}}>
-            <div style={{fontSize:15,fontWeight:700,marginBottom:8,color:"var(--a-text)"}}>Delete category?</div>
-            <p style={{fontSize:13,color:"var(--a-text-3)",marginBottom:24,lineHeight:1.6}}>Products in this Category will become uncategorised. Any Sub-Categories under it will also be affected.</p>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-              <button className="a-btn a-btn-secondary" onClick={()=>setDeleteId(null)}>Cancel</button>
-              <button className="a-btn a-btn-danger-solid" onClick={handleDelete} disabled={deleting}>{deleting?"Deleting…":"Delete"}</button>
+      {/* Hierarchy diagram */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, color: "var(--a-text-3)", marginBottom: 20, padding: "8px 12px", background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", width: "fit-content" }}>
+        <span style={{ fontWeight: 600, color: "var(--a-text-2)" }}>Product Group</span>
+        <ChevronRight style={{ width: 12, height: 12 }} />
+        <span style={{ fontWeight: 600, color: "var(--a-text-2)" }}>Product Type</span>
+        <ChevronRight style={{ width: 12, height: 12 }} />
+        <span style={{ fontWeight: 600, color: "var(--a-text-2)" }}>Product</span>
+        <span style={{ marginLeft: 8, color: "var(--a-text-4)" }}>e.g.</span>
+        <span>Protein → Whey Protein → Maxx Recovery</span>
+      </div>
+
+      {/* Search */}
+      <div className="a-filter-bar" style={{ marginBottom: 20 }}>
+        <div className="a-search-wrap" style={{ maxWidth: 340 }}>
+          <Search />
+          <input className="a-search-input" placeholder="Search groups and types…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        {search && (
+          <button onClick={() => setSearch("")} className="a-btn a-btn-ghost a-btn-sm" style={{ color: "var(--a-danger)" }}>
+            <X style={{ width: 12, height: 12 }} /> Clear
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="a-loading"><RefreshCw style={{ width: 16, height: 16 }} className="animate-spin" />Loading…</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+
+          {/* ── Product Groups panel ─────────────────────────────────── */}
+          <div className="a-card">
+            <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--a-border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--a-surface-2)" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Layers style={{ width: 15, height: 15, color: "var(--a-primary)" }} />
+                  Product Groups
+                </div>
+                <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>
+                  Broad categories (was: user_category) · {groups.length} total
+                </div>
+              </div>
+              <button onClick={() => setShowAddGroup(true)} className="a-btn a-btn-primary a-btn-sm">
+                <Plus style={{ width: 12, height: 12 }} /> Add
+              </button>
+            </div>
+
+            <div style={{ padding: "12px 16px" }}>
+              {showAddGroup && (
+                <AddForm label="Product Group" onAdd={handleAddGroup} onCancel={() => setShowAddGroup(false)} />
+              )}
+
+              {filteredGroups.length === 0 ? (
+                <div className="a-empty" style={{ padding: "24px 0" }}>
+                  <div className="a-empty-icon"><Layers style={{ width: 16, height: 16 }} /></div>
+                  <div className="a-empty-title" style={{ fontSize: 13 }}>{search ? "No groups match" : "No product groups yet"}</div>
+                  {!search && <div className="a-empty-sub" style={{ fontSize: 11 }}>Add groups or import the catalogue CSV to auto-create them.</div>}
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: showAddGroup ? 12 : 0 }}>
+                  {filteredGroups.map((g) => (
+                    <div key={g.id} style={{ padding: "10px 12px", borderRadius: "var(--a-radius)", border: "1px solid var(--a-border)", background: renamingGroupId === g.id ? "var(--a-primary-light)" : "var(--a-surface)" }}>
+                      {renamingGroupId === g.id ? (
+                        <InlineRenameForm
+                          currentName={g.name}
+                          onSave={(name) => handleRenameGroup(g.id, name)}
+                          onCancel={() => setRenamingGroupId(null)}
+                        />
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 28, height: 28, borderRadius: "var(--a-radius)", background: "var(--a-primary-mid)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              <Layers style={{ width: 12, height: 12, color: "var(--a-primary)" }} />
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 13 }}>{g.name}</div>
+                              <div style={{ fontSize: 10, color: "var(--a-text-3)" }}>{typesPerGroup(g.id)} type{typesPerGroup(g.id) !== 1 ? "s" : ""}</div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setRenamingGroupId(g.id)}
+                            className="a-btn a-btn-ghost a-btn-icon a-btn-sm"
+                            title="Rename (cascades to all products)"
+                          >
+                            <Edit2 style={{ width: 12, height: 12 }} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Product Types panel ──────────────────────────────────── */}
+          <div className="a-card">
+            <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--a-border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--a-surface-2)" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Tag style={{ width: 15, height: 15, color: "var(--a-accent)" }} />
+                  Product Types
+                </div>
+                <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>
+                  Fine-grained types (was: category) · {types.length} total
+                </div>
+              </div>
+              <button onClick={() => setShowAddType(true)} className="a-btn a-btn-primary a-btn-sm">
+                <Plus style={{ width: 12, height: 12 }} /> Add
+              </button>
+            </div>
+
+            <div style={{ padding: "12px 16px", maxHeight: 560, overflowY: "auto" }}>
+              {showAddType && (
+                <AddForm label="Product Type" onAdd={handleAddType} onCancel={() => setShowAddType(false)} groupOptions={groups} />
+              )}
+
+              {/* Grouped by product group */}
+              {tree.filter((g) => g.types.length > 0 || filteredGroups.find((fg) => fg.id === g.id)).map((g) => (
+                <div key={g.id} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--a-text-3)", marginBottom: 6, paddingLeft: 4 }}>
+                    {g.name}
+                  </div>
+                  {g.types.length === 0 ? (
+                    <div style={{ fontSize: 11, color: "var(--a-text-4)", paddingLeft: 4 }}>No types yet</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      {g.types.filter((t) => !q || t.name.toLowerCase().includes(q)).map((t) => (
+                        <div key={t.id} style={{ padding: "8px 10px", borderRadius: "var(--a-radius)", border: "1px solid var(--a-border)", background: renamingTypeId === t.id ? "var(--a-primary-light)" : "var(--a-surface)", marginLeft: 8 }}>
+                          {renamingTypeId === t.id ? (
+                            <InlineRenameForm
+                              currentName={t.name}
+                              onSave={(name) => handleRenameType(t.id, name, t.productGroupId)}
+                              onCancel={() => setRenamingTypeId(null)}
+                            />
+                          ) : (
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <ChevronRight style={{ width: 11, height: 11, color: "var(--a-text-4)" }} />
+                                <span style={{ fontSize: 12, fontWeight: 500 }}>{t.name}</span>
+                              </div>
+                              <button
+                                onClick={() => setRenamingTypeId(t.id)}
+                                className="a-btn a-btn-ghost a-btn-icon a-btn-sm"
+                                title="Rename (cascades to all products)"
+                              >
+                                <Edit2 style={{ width: 11, height: 11 }} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Ungrouped types */}
+              {ungroupedTypes.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--a-text-3)", marginBottom: 6, paddingLeft: 4 }}>
+                    Ungrouped
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {ungroupedTypes.map((t) => (
+                      <div key={t.id} style={{ padding: "8px 10px", borderRadius: "var(--a-radius)", border: "1px solid var(--a-border)", background: renamingTypeId === t.id ? "var(--a-primary-light)" : "var(--a-surface)" }}>
+                        {renamingTypeId === t.id ? (
+                          <InlineRenameForm
+                            currentName={t.name}
+                            onSave={(name) => handleRenameType(t.id, name, null)}
+                            onCancel={() => setRenamingTypeId(null)}
+                          />
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <Tag style={{ width: 11, height: 11, color: "var(--a-text-4)" }} />
+                              <span style={{ fontSize: 12, fontWeight: 500 }}>{t.name}</span>
+                            </div>
+                            <button onClick={() => setRenamingTypeId(t.id)} className="a-btn a-btn-ghost a-btn-icon a-btn-sm" title="Rename">
+                              <Edit2 style={{ width: 11, height: 11 }} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {filteredTypes.length === 0 && !showAddType && (
+                <div className="a-empty" style={{ padding: "24px 0" }}>
+                  <div className="a-empty-icon"><Tag style={{ width: 16, height: 16 }} /></div>
+                  <div className="a-empty-title" style={{ fontSize: 13 }}>{search ? "No types match" : "No product types yet"}</div>
+                  {!search && <div className="a-empty-sub" style={{ fontSize: 11 }}>Import the catalogue CSV or add manually.</div>}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Page header */}
-      <div className="a-page-header">
-        <div>
-          <div className="a-page-title">Categories</div>
-          <div className="a-page-subtitle">
-            Manage the Categories customers browse on the storefront — {categories.length} total. For fine-grained product types (e.g. &quot;Whey Protein&quot;), use the <strong>Type</strong> field on each product.
-          </div>
+      {/* No-deletion notice */}
+      <div className="a-alert a-alert-warning" style={{ marginTop: 20 }}>
+        <AlertTriangle style={{ width: 14, height: 14, flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 12 }}>
+          <strong>Deletion is disabled</strong> for Product Groups and Product Types to prevent products from losing their classification. Rename instead — the change will propagate everywhere.
         </div>
-        <button className="a-btn a-btn-primary" onClick={openNew}>
-          <Plus style={{width:15,height:15}} /> New Category
-        </button>
-      </div>
-
-      {/* Filter bar */}
-      <div className="a-filter-bar">
-        <div className="a-search-wrap" style={{maxWidth:300}}>
-          <Search />
-          <input className="a-search-input" placeholder="Search categories…" value={search} onChange={e=>setSearch(e.target.value)} />
-        </div>
-        <button className="a-btn a-btn-secondary a-btn-sm" onClick={load} title="Refresh">
-          <RefreshCw style={{width:13,height:13}} /> Refresh
-        </button>
-      </div>
-
-      {/* Table card */}
-      <div className="a-card">
-        {loading?(
-          <div className="a-loading"><RefreshCw style={{width:16,height:16,animation:"spin 1s linear infinite"}} />Loading…</div>
-        ):filtered.length===0?(
-          <div className="a-empty">
-            <div className="a-empty-icon"><Tag /></div>
-            <div className="a-empty-title">No categories found</div>
-            <div className="a-empty-sub">{search?"Try a different search.":"Create your first category."}</div>
-            {!search&&<button className="a-btn a-btn-primary" onClick={openNew}><Plus style={{width:14,height:14}} /> New Category</button>}
-          </div>
-        ):(
-          <div className="a-table-wrap">
-            <table className="a-table">
-              <thead>
-                <tr>
-                  <th style={{minWidth:200}}>Category</th>
-                  <th>Slug</th>
-                  <th>Icon</th>
-                  <th>Status</th>
-                  <th>Featured</th>
-                  <th style={{textAlign:"center"}}>Order</th>
-                  {/* Actions column — fixed width, never squishes */}
-                  <th className="col-actions">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tree.map(parent=>(
-                  <React.Fragment key={parent.id}>
-                    {/* ── Parent row ── */}
-                    <tr style={{background:"var(--a-surface-2)"}}>
-                      <td>
-                        <div style={{display:"flex",alignItems:"center",gap:10}}>
-                          <div style={{width:32,height:32,borderRadius:"var(--a-radius)",background:"var(--a-primary-mid)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                            <Tag style={{width:14,height:14,color:"var(--a-primary)"}} />
-                          </div>
-                          <div>
-                            <div style={{fontWeight:600,fontSize:13,color:"var(--a-text)"}}>{parent.name}</div>
-                            {parent.description&&<div style={{fontSize:11,color:"var(--a-text-3)",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{parent.description}</div>}
-                          </div>
-                        </div>
-                      </td>
-                      <td><span className="a-badge a-badge-neutral" style={{fontSize:10,fontFamily:"monospace"}}>{parent.slug}</span></td>
-                      <td><span style={{fontSize:12,color:"var(--a-text-3)"}}>{parent.iconKey}</span></td>
-                      <td>
-                        {parent.isActive
-                          ? <span className="a-badge a-badge-green">Active</span>
-                          : <span className="a-badge a-badge-neutral">Hidden</span>}
-                      </td>
-                      <td>
-                        {(parent as any).isFeatured
-                          ? <span className="a-badge a-badge-yellow">⭐ Featured</span>
-                          : <span style={{color:"var(--a-text-4)",fontSize:12}}>—</span>}
-                      </td>
-                      <td style={{textAlign:"center"}}>
-                        <span style={{fontSize:12,color:"var(--a-text-3)",fontWeight:500}}>{parent.sortOrder}</span>
-                      </td>
-                      <td className="col-actions">
-                        <div className="a-row-actions">
-                          {/* Reorder group */}
-                          <button className="a-row-btn" onClick={()=>handleMove(parent,"up",topLevel)} title="Move up">
-                            <ArrowUp style={{width:13,height:13}} />
-                          </button>
-                          <button className="a-row-btn" onClick={()=>handleMove(parent,"down",topLevel)} title="Move down">
-                            <ArrowDown style={{width:13,height:13}} />
-                          </button>
-
-                          <span className="a-row-actions-sep" />
-
-                          {/* Visibility */}
-                          <button className="a-row-btn" onClick={()=>handleToggleActive(parent)} title={parent.isActive?"Hide":"Show"}>
-                            {parent.isActive ? <EyeOff style={{width:13,height:13}} /> : <Eye style={{width:13,height:13}} />}
-                          </button>
-                          {/* Featured */}
-                          <button className="a-row-btn" onClick={()=>handleToggleFeatured(parent)} title="Toggle featured">
-                            {(parent as any).isFeatured ? <StarOff style={{width:13,height:13}} /> : <Star style={{width:13,height:13}} />}
-                          </button>
-
-                          <span className="a-row-actions-sep" />
-
-                          {/* Edit */}
-                          <button className="a-row-btn" onClick={()=>openEdit(parent)} title="Edit">
-                            <Edit2 style={{width:13,height:13}} />
-                          </button>
-                          {/* Delete */}
-                          <button className="a-row-btn a-row-btn-danger" onClick={()=>setDeleteId(parent.id)} title="Delete">
-                            <Trash2 style={{width:13,height:13}} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-
-                    {/* ── Child rows ── */}
-                    {parent.children.map(child=>(
-                      <tr key={child.id}>
-                        <td>
-                          <div style={{display:"flex",alignItems:"center",gap:8,paddingLeft:28}}>
-                            <ChevronRight style={{width:12,height:12,color:"var(--a-text-4)",flexShrink:0}} />
-                            <div>
-                              <div style={{fontWeight:500,fontSize:13,color:"var(--a-text)"}}>{child.name}</div>
-                              {child.description&&<div style={{fontSize:11,color:"var(--a-text-3)",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{child.description}</div>}
-                            </div>
-                          </div>
-                        </td>
-                        <td><span className="a-badge a-badge-neutral" style={{fontSize:10,fontFamily:"monospace"}}>{child.slug}</span></td>
-                        <td><span style={{fontSize:12,color:"var(--a-text-3)"}}>{child.iconKey}</span></td>
-                        <td>
-                          {child.isActive
-                            ? <span className="a-badge a-badge-green">Active</span>
-                            : <span className="a-badge a-badge-neutral">Hidden</span>}
-                        </td>
-                        <td><span style={{color:"var(--a-text-4)",fontSize:12}}>—</span></td>
-                        <td style={{textAlign:"center"}}>
-                          <span style={{fontSize:12,color:"var(--a-text-3)",fontWeight:500}}>{child.sortOrder}</span>
-                        </td>
-                        <td className="col-actions">
-                          <div className="a-row-actions">
-                            <button className="a-row-btn" onClick={()=>handleMove(child,"up",parent.children)} title="Move up">
-                              <ArrowUp style={{width:13,height:13}} />
-                            </button>
-                            <button className="a-row-btn" onClick={()=>handleMove(child,"down",parent.children)} title="Move down">
-                              <ArrowDown style={{width:13,height:13}} />
-                            </button>
-
-                            <span className="a-row-actions-sep" />
-
-                            <button className="a-row-btn" onClick={()=>handleToggleActive(child)} title={child.isActive?"Hide":"Show"}>
-                              {child.isActive ? <EyeOff style={{width:13,height:13}} /> : <Eye style={{width:13,height:13}} />}
-                            </button>
-                            {/* No "featured" for children — stub keeps columns aligned */}
-                            <button className="a-row-btn" disabled style={{opacity:0.25,cursor:"default"}}>
-                              <Star style={{width:13,height:13}} />
-                            </button>
-
-                            <span className="a-row-actions-sep" />
-
-                            <button className="a-row-btn" onClick={()=>openEdit(child)} title="Edit">
-                              <Edit2 style={{width:13,height:13}} />
-                            </button>
-                            <button className="a-row-btn a-row-btn-danger" onClick={()=>setDeleteId(child.id)} title="Delete">
-                              <Trash2 style={{width:13,height:13}} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ import { useCart } from "@/lib/cartContext";
 const STORE_NAV = [
   { href: "/store", label: "Home", icon: Home },
   { href: "/store/search", label: "Search", icon: Search },
-  { href: "/store/categories", label: "Categories", icon: Tag },
+  { href: "/store/categories", label: "Shop by Group", icon: Tag },
   { href: "/store/cart", label: "Cart", icon: ShoppingCart, showBadge: true },
   { href: "/store/orders", label: "Orders", icon: Package },
 ];

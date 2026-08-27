@@ -1,99 +1,98 @@
 "use client";
 
+// ════════════════════════════════════════════════════════════════════════
+// Admin — Store Products
+// Operational view: products active/managed in the store.
+// Separate from the Product Catalogue. Does NOT auto-import catalogue.
+// Classification dropdowns are fetched from product_groups/product_types DB tables.
+// ════════════════════════════════════════════════════════════════════════
+
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  Plus,
-  Search,
-  Package,
-  Edit2,
-  Trash2,
-  Star,
-  StarOff,
-  ChevronLeft,
-  ChevronRight,
-  RefreshCw,
-  ExternalLink,
+  Plus, Search, Package, Edit2, Star, StarOff,
+  ChevronLeft, ChevronRight, RefreshCw, ExternalLink, X,
 } from "lucide-react";
-import { adminFetchProducts, adminDeleteProduct, adminFetchAllCategories, adminFetchDistinctProductTypes, adminToggleFeaturedProduct, adminUpdateProduct } from "@/lib/storeAdminApi";
-import type { StoreProduct, StoreCategory } from "@/lib/storeTypes";
+import {
+  adminFetchProducts,
+  adminDeleteProduct,
+  adminToggleFeaturedProduct,
+  adminUpdateProduct,
+} from "@/lib/storeAdminApi";
+import {
+  fetchAllProductGroups,
+  fetchAllProductTypes,
+  type ProductGroup,
+  type ProductType,
+} from "@/lib/catalogueAdminApi";
+import type { StoreProduct, StoreProductVariant } from "@/lib/storeTypes";
 import { formatPriceINR } from "@/lib/storeTypes";
 
 const PAGE_SIZE = 20;
 
-const AVAILABILITY_OPTIONS = [
-  { value: "", label: "All Availability" },
-  { value: "active", label: "Active" },
-  { value: "inactive", label: "Inactive" },
-  { value: "out_of_stock", label: "Out of Stock" },
-  { value: "discontinued", label: "Discontinued" },
-];
-
 const PUBLISHED_OPTIONS = [
   { value: "", label: "All Status" },
-  { value: "true", label: "Published" },
+  { value: "true", label: "Live" },
   { value: "false", label: "Draft" },
 ];
 
-/**
- * Published = visible to customers on the storefront.
- * Draft     = hidden from customers, admin-only.
- */
-function PublishBadge({ published, onToggle }: { published: boolean; onToggle?: () => void }) {
+// ── Visibility badge (published / draft) ─────────────────────────────────
+function VisibilityBadge({ published, onToggle }: { published: boolean; onToggle?: () => void }) {
   return published ? (
     <button
       onClick={onToggle}
       className="a-badge a-badge-green"
-      title="Visible to customers — click to unpublish"
-      style={{ cursor: onToggle ? "pointer" : "default", border: "none", background: undefined }}
+      title="Live — click to unpublish"
+      style={{ cursor: onToggle ? "pointer" : "default", border: "none", whiteSpace: "nowrap" }}
     >
-      ✓ Live
+      Live
     </button>
   ) : (
     <button
       onClick={onToggle}
-      className="a-badge a-badge-orange"
-      title="Hidden from customers — click to publish to store"
-      style={{ cursor: onToggle ? "pointer" : "default", border: "none", background: undefined }}
+      className="a-badge a-badge-red"
+      title="Click to publish"
+      style={{ cursor: onToggle ? "pointer" : "default", border: "none", whiteSpace: "nowrap" }}
     >
-      Draft — click to publish
+      Draft — Click to publish
     </button>
   );
 }
 
-/**
- * Availability controls whether the product can be purchased:
- *   Active       = in stock, can be added to cart
- *   Inactive     = listed but not purchasable (e.g. temporarily unavailable)
- *   Out of Stock = no stock; shown but cart blocked
- *   Discontinued = permanently retired; not shown to customers
- */
-function AvailabilityBadge({ availability }: { availability: string }) {
-  const map: Record<string, string> = {
-    active:       "a-badge-blue",
-    inactive:     "a-badge-neutral",
-    out_of_stock: "a-badge-orange",
-    discontinued: "a-badge-red",
-  };
-  const labels: Record<string, string> = {
-    active:       "Active",
-    inactive:     "Inactive",
-    out_of_stock: "Out of Stock",
-    discontinued: "Discontinued",
-  };
-  const titles: Record<string, string> = {
-    active:       "In stock and purchasable",
-    inactive:     "Listed but not purchasable",
-    out_of_stock: "No stock — cart is blocked",
-    discontinued: "Permanently retired",
-  };
+// ── Stock badge + quantity ────────────────────────────────────────────────
+function StockInfo({ variants }: { variants?: StoreProductVariant[] }) {
+  if (!variants || variants.length === 0) {
+    return <span style={{ color: "var(--a-text-4)", fontSize: 12 }}>—</span>;
+  }
+
+  // Aggregate across all variants
+  const totalStock = variants.reduce((sum, v) => sum + (v.stockQuantity ?? 0), 0);
+  const allOutOfStock = variants.every((v) => v.stockQuantity <= 0 || v.availability === "out_of_stock");
+  const anyLowStock = variants.some(
+    (v) => v.stockQuantity > 0 && v.stockQuantity <= v.lowStockThreshold && v.availability !== "out_of_stock"
+  );
+
+  let label: string;
+  let badgeClass: string;
+
+  if (allOutOfStock || totalStock <= 0) {
+    label = "Out of Stock";
+    badgeClass = "a-badge-red";
+  } else if (anyLowStock) {
+    label = "Low Stock";
+    badgeClass = "a-badge-orange";
+  } else {
+    label = "In Stock";
+    badgeClass = "a-badge-green";
+  }
+
   return (
-    <span
-      className={`a-badge ${map[availability] ?? "a-badge-neutral"}`}
-      title={titles[availability] ?? availability}
-    >
-      {labels[availability] ?? availability}
-    </span>
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span className={`a-badge ${badgeClass}`} style={{ whiteSpace: "nowrap" }}>{label}</span>
+      <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>
+        {totalStock} unit{totalStock !== 1 ? "s" : ""}
+      </span>
+    </div>
   );
 }
 
@@ -105,32 +104,33 @@ export default function AdminProductsPage() {
 
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [productType, setProductType] = useState("");
+  const [groupFilter, setGroupFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [published, setPublished] = useState("");
-  const [availability, setAvailability] = useState("");
 
-  const [categories, setCategories] = useState<StoreCategory[]>([]);
-  const [types, setTypes] = useState<string[]>([]);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // Classification from DB (not hardcoded)
+  const [groups, setGroups] = useState<ProductGroup[]>([]);
+  const [types, setTypes] = useState<ProductType[]>([]);
 
-  useEffect(() => { adminFetchAllCategories().then(setCategories); }, []);
-  useEffect(() => { adminFetchDistinctProductTypes().then(setTypes); }, []);
+  useEffect(() => {
+    fetchAllProductGroups().then(setGroups);
+    fetchAllProductTypes().then(setTypes);
+  }, []);
+
+  const filteredTypes = types.filter((t) => !groupFilter || t.productGroupId === groupFilter);
 
   const load = useCallback(async () => {
     setLoading(true);
     const opts: Record<string, unknown> = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
     if (search) opts.search = search;
-    if (categoryId) opts.categoryId = categoryId;
-    if (productType) opts.productType = productType;
+    if (groupFilter) opts.categoryId = groupFilter;
+    if (typeFilter) opts.productType = typeFilter;
     if (published !== "") opts.published = published === "true";
-    if (availability) opts.availability = availability;
     const result = await adminFetchProducts(opts);
     setProducts(result.products);
     setTotal(result.total);
     setLoading(false);
-  }, [search, categoryId, productType, published, availability, page]);
+  }, [search, groupFilter, typeFilter, published, page]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -141,11 +141,7 @@ export default function AdminProductsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (deleteConfirmId !== id) { setDeleteConfirmId(id); return; }
-    setDeletingId(id);
-    setDeleteConfirmId(null);
     await adminDeleteProduct(id);
-    setDeletingId(null);
     load();
   }
 
@@ -160,30 +156,28 @@ export default function AdminProductsPage() {
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const mainCategories = categories.filter(c => !c.parentId);
-  const subCategories = categories.filter(c => !!c.parentId);
-  const hasFilters = !!(search || categoryId || productType || published || availability);
+  const hasFilters = !!(search || groupFilter || typeFilter || published);
 
   return (
     <div style={{ maxWidth: 1100 }}>
-      {/* Page header */}
+      {/* Header */}
       <div className="a-page-header">
         <div>
-          <h2 className="a-page-title">Products</h2>
-          <p className="a-page-subtitle">{total} product{total !== 1 ? "s" : ""} in your store</p>
+          <h2 className="a-page-title">Store Products</h2>
+          <p className="a-page-subtitle">
+            {total} product{total !== 1 ? "s" : ""} currently managed in your store · Use{" "}
+            <Link href="/admin/catalog" style={{ color: "var(--a-primary)", textDecoration: "none" }}>
+              Product Catalogue
+            </Link>{" "}
+            to add more
+          </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={load}
-            className="a-btn a-btn-secondary a-btn-icon"
-            title="Refresh"
-            aria-label="Refresh products"
-          >
+          <button onClick={load} className="a-btn a-btn-secondary a-btn-icon" title="Refresh">
             <RefreshCw style={{ width: 14, height: 14 }} className={loading ? "animate-spin" : ""} />
           </button>
           <Link href="/admin/products/new" className="a-btn a-btn-primary">
-            <Plus style={{ width: 14, height: 14 }} />
-            Add Product
+            <Plus style={{ width: 14, height: 14 }} /> Add Product
           </Link>
         </div>
       </div>
@@ -196,67 +190,49 @@ export default function AdminProductsPage() {
             <input
               type="text"
               value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search products…"
               className="a-search-input"
             />
           </div>
-          <button type="submit" className="a-btn a-btn-secondary" style={{ height: 32 }}>
-            Search
-          </button>
+          <button type="submit" className="a-btn a-btn-secondary" style={{ height: 32 }}>Search</button>
         </form>
 
+        {/* Product Group */}
         <select
-          value={categoryId}
-          onChange={e => { setCategoryId(e.target.value); setPage(0); }}
+          value={groupFilter}
+          onChange={(e) => { setGroupFilter(e.target.value); setTypeFilter(""); setPage(0); }}
           className="a-filter-select"
         >
-          <option value="">All Categories</option>
-          {mainCategories.length > 0 && (
-            <optgroup label="Categories">
-              {mainCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </optgroup>
-          )}
-          {subCategories.length > 0 && (
-            <optgroup label="Sub-Categories">
-              {subCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </optgroup>
-          )}
+          <option value="">All Product Groups</option>
+          {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
         </select>
 
+        {/* Product Type — scoped to selected group */}
         <select
-          value={productType}
-          onChange={e => { setProductType(e.target.value); setPage(0); }}
+          value={typeFilter}
+          onChange={(e) => { setTypeFilter(e.target.value); setPage(0); }}
           className="a-filter-select"
-          title="Fine-grained product type — further filtration"
         >
-          <option value="">All Types</option>
-          {types.map(t => <option key={t} value={t}>{t}</option>)}
+          <option value="">All Product Types</option>
+          {filteredTypes.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
         </select>
 
         <select
           value={published}
-          onChange={e => { setPublished(e.target.value); setPage(0); }}
+          onChange={(e) => { setPublished(e.target.value); setPage(0); }}
           className="a-filter-select"
         >
-          {PUBLISHED_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-
-        <select
-          value={availability}
-          onChange={e => { setAvailability(e.target.value); setPage(0); }}
-          className="a-filter-select"
-        >
-          {AVAILABILITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {PUBLISHED_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
 
         {hasFilters && (
           <button
-            onClick={() => { setSearch(""); setSearchInput(""); setCategoryId(""); setProductType(""); setPublished(""); setAvailability(""); setPage(0); }}
+            onClick={() => { setSearch(""); setSearchInput(""); setGroupFilter(""); setTypeFilter(""); setPublished(""); setPage(0); }}
             className="a-btn a-btn-ghost"
             style={{ height: 32, fontSize: 12, color: "var(--a-danger)" }}
           >
-            Clear filters
+            <X style={{ width: 12, height: 12 }} /> Clear
           </button>
         )}
       </div>
@@ -273,11 +249,11 @@ export default function AdminProductsPage() {
             <div className="a-empty-icon"><Package style={{ width: 18, height: 18 }} /></div>
             <div className="a-empty-title">No products found</div>
             <div className="a-empty-sub">
-              {hasFilters ? "Try adjusting your filters." : "Add your first product to get started."}
+              {hasFilters ? "Try adjusting your filters." : "Add products from the Product Catalogue."}
             </div>
             {!hasFilters && (
-              <Link href="/admin/products/new" className="a-btn a-btn-primary">
-                <Plus style={{ width: 14, height: 14 }} /> Add Product
+              <Link href="/admin/catalog" className="a-btn a-btn-primary">
+                <Plus style={{ width: 14, height: 14 }} /> Browse Catalogue
               </Link>
             )}
           </div>
@@ -290,28 +266,32 @@ export default function AdminProductsPage() {
                   <tr>
                     <th style={{ width: 36 }}>#</th>
                     <th>Product</th>
-                    <th>Category</th>
-                    <th>Type</th>
+                    <th>Product Group</th>
+                    <th>Product Type</th>
                     <th>Variants</th>
-                    <th title="Visibility = Published (customers can see it) or Draft (admin-only). Stock = whether it can be added to cart.">Visibility &amp; Stock</th>
+                    <th>Visibility</th>
+                    <th>Stock</th>
                     <th style={{ textAlign: "right" }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {products.map((product, i) => {
                     const img = product.images[0];
+                    const prices = (product.variants ?? []).map((v) => v.pricePaise).filter(Boolean);
+                    const minPrice = prices.length ? Math.min(...prices) : null;
+                    const maxPrice = prices.length ? Math.max(...prices) : null;
+
                     return (
                       <tr key={product.id}>
-                        <td style={{ color: "var(--a-text-3)", fontSize: 12 }}>
-                          {page * PAGE_SIZE + i + 1}
-                        </td>
+                        <td style={{ color: "var(--a-text-3)", fontSize: 12 }}>{page * PAGE_SIZE + i + 1}</td>
+
+                        {/* Product name + brand */}
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             <div className="a-product-thumb">
                               {img
                                 ? <img src={img} alt={product.name} />
-                                : <Package style={{ width: 14, height: 14, color: "var(--a-text-3)" }} />
-                              }
+                                : <Package style={{ width: 14, height: 14, color: "var(--a-text-3)" }} />}
                             </div>
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -326,53 +306,69 @@ export default function AdminProductsPage() {
                                   <Star style={{ width: 11, height: 11, color: "#d97706", fill: "#d97706" }} />
                                 )}
                               </div>
-                              <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>
-                                {product.brand?.name ?? "No brand"} · {product.slug}
-                              </div>
+                              {product.brand?.name && (
+                                <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>
+                                  {product.brand.name}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
+
+                        {/* Product Group */}
                         <td style={{ color: "var(--a-text-2)", fontSize: 12 }}>
-                          {product.category?.name ?? "—"}
+                          {product.category?.name
+                            ? product.category.name
+                            : <span style={{ color: "var(--a-text-4)" }}>—</span>}
                         </td>
+
+                        {/* Product Type */}
                         <td style={{ color: "var(--a-text-2)", fontSize: 12 }}>
-                          {product.productType || <span style={{ color: "var(--a-text-4)" }}>—</span>}
+                          {product.productType
+                            ? product.productType
+                            : <span style={{ color: "var(--a-text-4)" }}>—</span>}
                         </td>
+
+                        {/* Variants + price range */}
                         <td style={{ color: "var(--a-text-2)", fontSize: 12 }}>
                           {product.variants && product.variants.length > 0 ? (
                             <div>
-                              <span style={{ fontWeight: 500 }}>{product.variants.length} variant{product.variants.length !== 1 ? "s" : ""}</span>
-                              {(() => {
-                                const prices = product.variants.map(v => v.pricePaise).filter(Boolean);
-                                if (!prices.length) return null;
-                                const min = Math.min(...prices);
-                                const max = Math.max(...prices);
-                                return (
-                                  <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 1 }}>
-                                    {min === max ? formatPriceINR(min) : `${formatPriceINR(min)} – ${formatPriceINR(max)}`}
-                                  </div>
-                                );
-                              })()}
+                              <span style={{ fontWeight: 500 }}>
+                                {product.variants.length} variant{product.variants.length !== 1 ? "s" : ""}
+                              </span>
+                              {minPrice !== null && (
+                                <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 1 }}>
+                                  {minPrice === maxPrice
+                                    ? formatPriceINR(minPrice)
+                                    : `${formatPriceINR(minPrice)} – ${formatPriceINR(maxPrice!)}`}
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <span style={{ color: "var(--a-text-4)" }}>No variants</span>
                           )}
                         </td>
+
+                        {/* Visibility — published/draft only */}
                         <td>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                            <PublishBadge
-                              published={product.published}
-                              onToggle={() => handleTogglePublished(product.id, product.published)}
-                            />
-                            <AvailabilityBadge availability={product.availability} />
-                          </div>
+                          <VisibilityBadge
+                            published={product.published}
+                            onToggle={() => handleTogglePublished(product.id, product.published)}
+                          />
                         </td>
+
+                        {/* Stock — quantity + status */}
+                        <td>
+                          <StockInfo variants={product.variants} />
+                        </td>
+
+                        {/* Actions */}
                         <td>
                           <div className="a-table-actions">
                             <Link
                               href={`/admin/products/${product.id}/edit`}
                               className="a-btn a-btn-ghost a-btn-icon a-btn-sm"
-                              title="Edit product"
+                              title="Edit"
                             >
                               <Edit2 style={{ width: 13, height: 13 }} />
                             </Link>
@@ -395,15 +391,6 @@ export default function AdminProductsPage() {
                                 ? <StarOff style={{ width: 13, height: 13, color: "#d97706" }} />
                                 : <Star style={{ width: 13, height: 13 }} />}
                             </button>
-                            <button
-                              onClick={() => handleDelete(product.id)}
-                              disabled={deletingId === product.id}
-                              className={`a-btn a-btn-sm a-btn-icon ${deleteConfirmId === product.id ? "a-btn-danger-solid" : "a-btn-ghost"}`}
-                              title={deleteConfirmId === product.id ? "Confirm delete?" : "Delete"}
-                              style={{ color: deleteConfirmId === product.id ? undefined : "var(--a-danger)" }}
-                            >
-                              <Trash2 style={{ width: 13, height: 13 }} />
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -413,25 +400,36 @@ export default function AdminProductsPage() {
               </table>
             </div>
 
-            {/* Mobile card list */}
+            {/* Mobile cards */}
             <div className="md:hidden" style={{ borderTop: "1px solid var(--a-border)" }}>
               {products.map((product) => (
-                <div key={product.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid var(--a-border)" }}>
+                <div
+                  key={product.id}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid var(--a-border)" }}
+                >
                   <div className="a-product-thumb" style={{ width: 40, height: 40 }}>
                     {product.images[0]
                       ? <img src={product.images[0]} alt={product.name} />
-                      : <Package style={{ width: 16, height: 16, color: "var(--a-text-3)" }} />
-                    }
+                      : <Package style={{ width: 16, height: 16, color: "var(--a-text-3)" }} />}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{product.name}</div>
-                    <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>{product.brand?.name ?? "No brand"}</div>
-                    <div style={{ display: "flex", gap: 4, marginTop: 5 }}>
-                      <PublishBadge
+                    <div style={{ fontWeight: 500, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {product.name}
+                    </div>
+                    {product.brand?.name && (
+                      <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 1 }}>
+                        {product.brand.name}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>
+                      {product.category?.name ?? "—"}{product.productType ? ` · ${product.productType}` : ""}
+                    </div>
+                    <div style={{ display: "flex", gap: 4, marginTop: 5, flexWrap: "wrap" }}>
+                      <VisibilityBadge
                         published={product.published}
                         onToggle={() => handleTogglePublished(product.id, product.published)}
                       />
-                      <AvailabilityBadge availability={product.availability} />
+                      <StockInfo variants={product.variants} />
                     </div>
                   </div>
                   <Link href={`/admin/products/${product.id}/edit`} className="a-btn a-btn-secondary a-btn-icon">
@@ -446,43 +444,23 @@ export default function AdminProductsPage() {
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="a-pagination">
-            <span>
-              {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-            </span>
+            <span>{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}</span>
             <div className="a-pagination-btns">
-              <button
-                onClick={() => setPage(p => p - 1)}
-                disabled={page === 0}
-                className="a-page-btn"
-                aria-label="Previous page"
-              >
+              <button onClick={() => setPage((p) => p - 1)} disabled={page === 0} className="a-page-btn">
                 <ChevronLeft style={{ width: 14, height: 14 }} />
               </button>
               {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setPage(i)}
-                  className={`a-page-btn ${i === page ? "active" : ""}`}
-                >
+                <button key={i} onClick={() => setPage(i)} className={`a-page-btn ${i === page ? "active" : ""}`}>
                   {i + 1}
                 </button>
               ))}
-              <button
-                onClick={() => setPage(p => p + 1)}
-                disabled={page >= totalPages - 1}
-                className="a-page-btn"
-                aria-label="Next page"
-              >
+              <button onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1} className="a-page-btn">
                 <ChevronRight style={{ width: 14, height: 14 }} />
               </button>
             </div>
           </div>
         )}
       </div>
-
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-10" onClick={() => setDeleteConfirmId(null)} />
-      )}
     </div>
   );
 }

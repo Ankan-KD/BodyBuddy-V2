@@ -12,8 +12,8 @@ import { useAuth } from "@/lib/auth";
 const NAV_ITEMS = [
   { href: "/admin/dashboard",  label: "Dashboard",       Icon: LayoutDashboard },
   { href: "/admin/products",   label: "Store Products",  Icon: Package         },
-  { href: "/admin/catalog",    label: "Product Catalog", Icon: BookOpen        },
-  { href: "/admin/categories", label: "Categories",      Icon: Tag             },
+  { href: "/admin/catalog",    label: "Product Catalogue", Icon: BookOpen        },
+  { href: "/admin/categories", label: "Product Groups & Types",      Icon: Tag             },
   { href: "/admin/orders",     label: "Orders",          Icon: ShoppingBag     },
   { href: "/admin/customers",  label: "Customers",       Icon: Users           },
   { href: "/admin/offers",     label: "Offers",          Icon: Percent         },

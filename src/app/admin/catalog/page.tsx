@@ -1,21 +1,37 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-// Admin — Product Catalog  (fixed: Goals always visible, Aim in detail
-// only, real pagination, variant selector compact, no overflow on Actions)
+// Admin — Product Catalogue
+// The DB is the source of truth. CSV is only for initial/bulk import.
+// From here admins can view & edit all catalogue product info.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Search, BookOpen, Package, Plus, Info, X, Layers, RefreshCw,
-  Dumbbell, Flame, Heart, Scale, ChevronRight, ChevronLeft, ChevronDown,
+  Search, BookOpen, Package, Plus, X, RefreshCw, Upload,
+  Edit2, ChevronLeft, ChevronRight, Info, Dumbbell, Flame, Heart, Scale,
+  Check, AlertTriangle, ExternalLink, Eye, Tag, Hash, ShieldAlert, Layers,
+  Box, IndianRupee, Target,
 } from "lucide-react";
-import type { CatalogProduct, CatalogVariant } from "@/lib/catalogTypes";
+import {
+  fetchCatalogue,
+  fetchCatalogueProductById,
+  fetchAllProductGroups,
+  fetchAllProductTypes,
+  updateCatalogueProduct,
+  importCatalogueFromRows,
+  type CatalogueProduct,
+  type CatalogueVariant,
+  type ProductGroup,
+  type ProductType,
+  type CatalogueImportRow,
+} from "@/lib/catalogueAdminApi";
+import { adminFetchImportedCatalogIds } from "@/lib/storeAdminApi";
+import { useRouter } from "next/navigation";
 
 const PAGE_SIZE = 25;
 
-// ── Goal badge helpers ────────────────────────────────────────────────────
+// ── Goal badge ────────────────────────────────────────────────────────────
 
 const GOAL_META: Record<string, { label: string; Icon: React.ElementType; cls: string }> = {
   "weight-gain":     { label: "Weight Gain",     Icon: Scale,    cls: "a-badge-blue"   },
@@ -25,387 +41,613 @@ const GOAL_META: Record<string, { label: string; Icon: React.ElementType; cls: s
 };
 
 function GoalBadge({ tag }: { tag: string }) {
-  const key = tag.toLowerCase().replace(/\s+/g, "-");
-  const meta = GOAL_META[key];
+  const meta = GOAL_META[tag.toLowerCase().replace(/\s+/g, "-")];
   if (!meta) return <span className="a-badge a-badge-blue">{tag}</span>;
   const { label, Icon, cls } = meta;
-  return (
-    <span className={`a-badge ${cls}`}>
-      <Icon style={{ width: 9, height: 9 }} />
-      {label}
-    </span>
-  );
+  return <span className={`a-badge ${cls}`}><Icon style={{ width: 9, height: 9 }} />{label}</span>;
 }
 
-function AimBadge({ tag }: { tag: string }) {
-  return <span className="a-badge a-badge-neutral" style={{ fontSize: 9 }}>{tag}</span>;
-}
+// ── Inline editable cell ──────────────────────────────────────────────────
 
-// ── Tooltip "+N more" ─────────────────────────────────────────────────────
-
-function TagListWithOverflow({
-  items,
-  max = 2,
-  renderItem,
-  extraCls = "a-badge-neutral",
-}: {
-  items: string[];
-  max?: number;
-  renderItem: (item: string, idx: number) => React.ReactNode;
-  extraCls?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const visible = items.slice(0, max);
-  const hidden  = items.slice(max);
-
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, alignItems: "center", position: "relative" }}>
-      {visible.map((item, i) => renderItem(item, i))}
-      {hidden.length > 0 && (
-        <div ref={ref} style={{ position: "relative" }}>
-          <button
-            className={`a-badge ${extraCls}`}
-            style={{ cursor: "pointer", border: "1px dashed currentColor", background: "transparent", fontSize: 9, padding: "2px 5px" }}
-            onClick={() => setOpen(v => !v)}
-            onMouseEnter={() => setOpen(true)}
-            onMouseLeave={() => setOpen(false)}
-            title={hidden.join(", ")}
-          >
-            +{hidden.length}
-          </button>
-          {open && (
-            <div
-              style={{
-                position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 200,
-                background: "var(--a-surface)", border: "1px solid var(--a-border)",
-                borderRadius: "var(--a-radius)", boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
-                padding: "8px 10px", minWidth: 160, maxWidth: 260,
-                display: "flex", flexWrap: "wrap", gap: 4,
-              }}
-              onMouseEnter={() => setOpen(true)}
-              onMouseLeave={() => setOpen(false)}
-            >
-              {hidden.map((item, i) => (
-                <span key={i} className={`a-badge ${extraCls}`} style={{ fontSize: 9 }}>{item}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Variant label ─────────────────────────────────────────────────────────
-
-function buildVariantLabel(v: CatalogVariant): string {
-  if (v.variantName) return v.variantName;
-  const parts: string[] = [];
-  if (v.sizeWeight) parts.push(v.sizeWeight);
-  if (v.flavour)    parts.push(v.flavour);
-  if (v.colour)     parts.push(v.colour);
-  return parts.join(" — ") || v.sku || v.variantId;
-}
-
-// ── Compact variant selector (for table rows) ─────────────────────────────
-
-function VariantSelector({
-  product,
+function EditableCell({
   value,
-  onChange,
+  onSave,
+  multiline = false,
 }: {
-  product: CatalogProduct;
-  value: CatalogVariant | null;
-  onChange: (v: CatalogVariant) => void;
+  value: string;
+  onSave: (v: string) => Promise<void>;
+  multiline?: boolean;
 }) {
-  if (product.variants.length === 0) return <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>—</span>;
-  if (product.variants.length === 1) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (draft === value) { setEditing(false); return; }
+    setSaving(true);
+    await onSave(draft);
+    setSaving(false);
+    setEditing(false);
+  }
+
+  if (!editing) {
     return (
-      <span style={{ fontSize: 11, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>
-        {buildVariantLabel(product.variants[0])}
-      </span>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}
+        onClick={() => { setDraft(value); setEditing(true); }}
+        title="Click to edit"
+      >
+        <span style={{ fontSize: 12 }}>{value || <span style={{ color: "var(--a-text-4)" }}>—</span>}</span>
+        <Edit2 style={{ width: 10, height: 10, color: "var(--a-text-4)", flexShrink: 0 }} />
+      </div>
     );
   }
-  return (
-    <select
-      value={value?.variantId ?? ""}
-      onChange={e => {
-        const found = product.variants.find(v => v.variantId === e.target.value);
-        if (found) onChange(found);
-      }}
-      className="a-filter-select"
-      style={{ height: 26, fontSize: 11, padding: "0 20px 0 7px", width: "100%", maxWidth: 180 }}
-      onClick={e => e.stopPropagation()}
-      title={`${product.variants.length} variants`}
-    >
-      {product.variants.map(v => (
-        <option key={v.variantId} value={v.variantId}>{buildVariantLabel(v)}</option>
-      ))}
-    </select>
-  );
-}
-
-// ── Nutrition mini-grid ───────────────────────────────────────────────────
-
-function NutritionGrid({ variant, product }: { variant: CatalogVariant | null; product: CatalogProduct }) {
-  const cal  = variant?.calories       ?? product.calories;
-  const prot = variant?.proteinG       ?? product.proteinG;
-  const carb = variant?.carbohydratesG ?? product.carbohydratesG;
-  const fat  = variant?.fatG           ?? product.fatG;
-  const fib  = variant?.fibreG         ?? product.fibreG;
-  const sug  = variant?.sugarG         ?? product.sugarG;
-  const sod  = variant?.sodiumMg       ?? product.sodiumMg;
-  const servLabel = variant?.servingSizeLabel || product.servingSizeLabel;
-
-  if (cal === null && prot === null) return <span style={{ fontSize: 12, color: "var(--a-text-3)" }}>—</span>;
 
   return (
-    <div>
-      {servLabel && (
-        <p style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 6 }}>
-          Per serving ({servLabel})
-        </p>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {multiline ? (
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={3}
+          style={{ fontSize: 12, resize: "vertical", width: "100%", padding: "4px 6px", borderRadius: "var(--a-radius)", border: "1px solid var(--a-primary)", outline: "none" }}
+        />
+      ) : (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+          style={{ fontSize: 12, padding: "3px 6px", borderRadius: "var(--a-radius)", border: "1px solid var(--a-primary)", outline: "none", width: "100%" }}
+        />
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-        {[
-          { label: "Calories", val: cal,  unit: "kcal" },
-          { label: "Protein",  val: prot, unit: "g"    },
-          { label: "Carbs",    val: carb, unit: "g"    },
-          { label: "Fat",      val: fat,  unit: "g"    },
-        ].map(({ label, val, unit }) => val !== null && (
-          <div key={label} style={{
-            background: "var(--a-surface-2)", border: "1px solid var(--a-border)",
-            borderRadius: "var(--a-radius)", padding: "8px 6px", textAlign: "center",
-          }}>
-            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--a-text)" }}>{val}{unit}</p>
-            <p style={{ fontSize: 10, color: "var(--a-text-3)" }}>{label}</p>
-          </div>
-        ))}
+      <div style={{ display: "flex", gap: 4 }}>
+        <button onClick={save} disabled={saving} className="a-btn a-btn-primary a-btn-sm" style={{ fontSize: 11, padding: "2px 8px" }}>
+          {saving ? <RefreshCw style={{ width: 10, height: 10 }} className="animate-spin" /> : <Check style={{ width: 10, height: 10 }} />} Save
+        </button>
+        <button onClick={() => setEditing(false)} className="a-btn a-btn-ghost a-btn-sm" style={{ fontSize: 11 }}>
+          <X style={{ width: 10, height: 10 }} />
+        </button>
       </div>
-      {(fib !== null || sug !== null || sod !== null) && (
-        <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-          {fib !== null && <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>Fibre: {fib}g</span>}
-          {sug !== null && <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>Sugar: {sug}g</span>}
-          {sod !== null && <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>Sodium: {sod}mg</span>}
-        </div>
-      )}
     </div>
   );
 }
 
-// ── Detail modal ──────────────────────────────────────────────────────────
+// ── Select editable cell (for product group / type) ───────────────────────
 
-function CatalogDetailModal({
-  product,
-  selectedVariant,
-  onVariantChange,
-  onClose,
-  onAddToStore,
-  imported,
+function SelectCell({
+  value,
+  options,
+  onSave,
 }: {
-  product: CatalogProduct;
-  selectedVariant: CatalogVariant | null;
-  onVariantChange: (v: CatalogVariant) => void;
-  onClose: () => void;
-  onAddToStore: (p: CatalogProduct, v: CatalogVariant | null) => void;
-  imported: boolean;
+  value: string;
+  options: { id: string; name: string }[];
+  onSave: (id: string, name: string) => Promise<void>;
 }) {
-  const v = selectedVariant;
-  const price     = v?.suggestedPriceINR ?? null;
-  const compareAt = v?.compareAtPriceINR ?? null;
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const id = e.target.value;
+    const opt = options.find((o) => o.id === id);
+    if (!opt) return;
+    setSaving(true);
+    await onSave(opt.id, opt.name);
+    setSaving(false);
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}
+        onClick={() => setEditing(true)}
+        title="Click to change"
+      >
+        <span style={{ fontSize: 12 }}>{value || <span style={{ color: "var(--a-text-4)" }}>—</span>}</span>
+        <Edit2 style={{ width: 10, height: 10, color: "var(--a-text-4)", flexShrink: 0 }} />
+      </div>
+    );
+  }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }} onClick={onClose} />
+    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+      {saving ? (
+        <RefreshCw style={{ width: 12, height: 12 }} className="animate-spin" />
+      ) : (
+        <select autoFocus onChange={handleChange} defaultValue="" className="a-filter-select" style={{ height: 26, fontSize: 11 }}>
+          <option value="" disabled>Select…</option>
+          {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+        </select>
+      )}
+      <button onClick={() => setEditing(false)} className="a-btn a-btn-ghost a-btn-icon a-btn-sm">
+        <X style={{ width: 10, height: 10 }} />
+      </button>
+    </div>
+  );
+}
+
+// ── Variant helpers ────────────────────────────────────────────────────────
+
+function variantLabel(v: CatalogueVariant): string {
+  if (v.variantName) return v.variantName;
+  const parts = [v.sizeWeight, v.flavour].filter(Boolean);
+  return parts.length > 0 ? parts.join(" – ") : v.sku || "Variant";
+}
+
+// ── Product Detail view (read-only, restored product-detail view) ────────
+//
+// Shows full catalog-template info for a product, with a variant selector
+// that updates price / SKU / size / nutrition / stock for the chosen
+// variant. This is distinct from the Edit panel below — the existing
+// Edit button keeps opening that panel unchanged; this view is reached via
+// the new "View" action and links out to Edit via its footer button.
+
+function ProductDetailView({
+  product,
+  onClose,
+  onEdit,
+}: {
+  product: CatalogueProduct;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const defaultVariant = product.variants.find((v) => v.isDefaultVariant) ?? product.variants[0] ?? null;
+  const [selectedVariantId, setSelectedVariantId] = useState<string>(defaultVariant?.id ?? "");
+
+  const variant = product.variants.find((v) => v.id === selectedVariantId) ?? defaultVariant;
+
+  // Variant-level nutrition falls back to product-level when blank, per catalogTypes.ts
+  const nutrition = variant
+    ? {
+        calories: variant.calories ?? product.calories,
+        proteinG: variant.proteinG ?? product.proteinG,
+        carbohydratesG: variant.carbohydratesG ?? product.carbohydratesG,
+        fatG: variant.fatG ?? product.fatG,
+        fibreG: variant.fibreG ?? product.fibreG,
+        sugarG: variant.sugarG ?? product.sugarG,
+        sodiumMg: variant.sodiumMg ?? product.sodiumMg,
+        servingSizeLabel: variant.servingSizeLabel || product.servingSizeLabel,
+      }
+    : {
+        calories: product.calories, proteinG: product.proteinG, carbohydratesG: product.carbohydratesG,
+        fatG: product.fatG, fibreG: product.fibreG, sugarG: product.sugarG, sodiumMg: product.sodiumMg,
+        servingSizeLabel: product.servingSizeLabel,
+      };
+
+  const lowStock = variant ? variant.stockQuantity <= variant.lowStockThreshold : false;
+  const outOfStock = variant ? variant.stockQuantity <= 0 : false;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex" }}>
+      <div style={{ flex: 1, background: "rgba(0,0,0,0.4)" }} onClick={onClose} />
       <div style={{
-        position: "relative", width: "100%", maxWidth: 560, maxHeight: "90vh",
-        display: "flex", flexDirection: "column",
-        background: "var(--a-surface)", border: "1px solid var(--a-border)",
-        borderRadius: "var(--a-radius-lg)", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-        overflow: "hidden",
+        width: "min(560px, 95vw)", background: "var(--a-surface)", borderLeft: "1px solid var(--a-border)",
+        display: "flex", flexDirection: "column", height: "100%", overflowY: "auto",
       }}>
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 16px", borderBottom: "1px solid var(--a-border)", flexShrink: 0 }}>
-          <div style={{ width: 52, height: 52, borderRadius: "var(--a-radius)", background: "var(--a-surface-2)", border: "1px solid var(--a-border)", overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {product.primaryImageUrl
-              ? <img src={product.primaryImageUrl} alt={product.productName} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              : <Package style={{ width: 20, height: 20, color: "var(--a-text-3)" }} />
-            }
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--a-border)", display: "flex", alignItems: "center", gap: 10, background: "var(--a-surface-2)" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{product.productName}</div>
+            <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "monospace" }}>{product.productId}</span>
+              <span>·</span>
+              <span>{product.brand || "—"}</span>
+              <span>·</span>
+              <span>{product.productGroupName || "Unclassified"}</span>
+            </div>
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.3, color: "var(--a-text)", display: "flex", alignItems: "center", gap: 6 }}>
-              {product.productName}
-              {imported && (
-                <span className="a-badge a-badge-green" style={{ fontSize: 9, flexShrink: 0 }}>In Store</span>
-              )}
-            </p>
-            <p style={{ fontSize: 12, color: "var(--a-text-3)", marginTop: 2 }}>{product.brand} · {product.userCategory}{product.type ? ` · ${product.type}` : ""}</p>
-            <p style={{ fontSize: 10, color: "var(--a-text-3)", fontFamily: "monospace", marginTop: 2 }}>{product.productId}</p>
-          </div>
-          <button onClick={onClose} className="a-btn a-btn-ghost a-btn-icon a-btn-sm" aria-label="Close">
-            <X style={{ width: 14, height: 14 }} />
-          </button>
+          <button onClick={onClose} className="a-btn a-btn-ghost a-btn-icon a-btn-sm"><X style={{ width: 14, height: 14 }} /></button>
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
 
-          {/* Catalog notice */}
-          <div className="a-alert a-alert-info" style={{ padding: "8px 12px" }}>
+          {/* Catalog status */}
+          <div className="a-alert a-alert-info">
             <BookOpen style={{ width: 13, height: 13, flexShrink: 0 }} />
-            <span style={{ fontSize: 12 }}>This is a <strong>catalog template</strong> — not a live store product.</span>
+            <span style={{ fontSize: 12 }}>
+              <strong>This is a catalog template</strong> — reference data used to prefill new store listings, not a live product for sale.
+            </span>
           </div>
 
-          {/* Goals */}
-          {product.goalTags.length > 0 && (
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--a-text-3)", marginBottom: 6 }}>Goals</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                {product.goalTags.map(t => <GoalBadge key={t} tag={t} />)}
+          {/* Product Information */}
+          <div className="a-card" style={{ padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>Product Information</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3 }}>Product Name</div>
+                <div style={{ fontSize: 12 }}>{product.productName}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3 }}>Brand</div>
+                <div style={{ fontSize: 12 }}>{product.brand || "—"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3 }}>Product Group</div>
+                <div style={{ fontSize: 12 }}>{product.productGroupName || "—"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3 }}>Product ID</div>
+                <div style={{ fontSize: 12, fontFamily: "monospace" }}>{product.productId}</div>
               </div>
             </div>
-          )}
-
-          {/* Aim — shown in detail only */}
-          {product.aimTags.length > 0 && (
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--a-text-3)", marginBottom: 6 }}>Aim</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {product.aimTags.map(t => <AimBadge key={t} tag={t} />)}
-              </div>
-            </div>
-          )}
-
-          {/* Description */}
-          {product.shortDescription && (
-            <p style={{ fontSize: 13, color: "var(--a-text-2)", lineHeight: 1.5 }}>{product.shortDescription}</p>
-          )}
+          </div>
 
           {/* Variant selector */}
-          {product.variants.length > 0 && (
-            <div style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "10px 12px" }}>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--a-text-3)", marginBottom: 8 }}>
-                Select Variant ({product.variants.length})
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {product.variants.map(variant => {
-                  const isSelected = selectedVariant?.variantId === variant.variantId;
-                  return (
-                    <label
-                      key={variant.variantId}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        background: isSelected ? "var(--a-primary-bg, rgba(37,99,235,0.08))" : "var(--a-surface)",
-                        border: `1px solid ${isSelected ? "var(--a-primary)" : "var(--a-border)"}`,
-                        borderRadius: "var(--a-radius)", padding: "8px 12px",
-                        cursor: "pointer", transition: "all 0.12s",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <input
-                          type="radio"
-                          name={`variant-${product.productId}`}
-                          checked={isSelected}
-                          onChange={() => onVariantChange(variant)}
-                          style={{ accentColor: "var(--a-primary)" }}
-                        />
-                        <div>
-                          <p style={{ fontSize: 12, fontWeight: 500, color: "var(--a-text)" }}>{buildVariantLabel(variant)}</p>
-                          <p style={{ fontSize: 10, color: "var(--a-text-3)", fontFamily: "monospace" }}>{variant.sku}</p>
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        {variant.suggestedPriceINR !== null && (
-                          <p style={{ fontSize: 13, fontWeight: 700, color: "var(--a-primary)" }}>₹{variant.suggestedPriceINR.toLocaleString("en-IN")}</p>
-                        )}
-                        {variant.compareAtPriceINR !== null && variant.compareAtPriceINR > (variant.suggestedPriceINR ?? 0) && (
-                          <p style={{ fontSize: 10, color: "var(--a-text-3)", textDecoration: "line-through" }}>₹{variant.compareAtPriceINR.toLocaleString("en-IN")}</p>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
+          {product.variants.length > 0 && variant && (
+            <div className="a-card" style={{ padding: "12px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", letterSpacing: "0.05em" }}>Variant</div>
+                {variant.isDefaultVariant && <span className="a-badge a-badge-blue" style={{ fontSize: 9 }}>Default</span>}
               </div>
-            </div>
-          )}
+              <select
+                value={selectedVariantId}
+                onChange={(e) => setSelectedVariantId(e.target.value)}
+                className="a-filter-select"
+                style={{ width: "100%", marginBottom: 12 }}
+              >
+                {product.variants.map((v) => (
+                  <option key={v.id} value={v.id}>{variantLabel(v)}{v.isDefaultVariant ? " (Default)" : ""}</option>
+                ))}
+              </select>
 
-          {/* Nutrition — updates with selected variant */}
-          {(product.calories !== null || product.proteinG !== null ||
-            v?.calories !== null || v?.proteinG !== null) && (
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--a-text-3)", marginBottom: 8 }}>
-                Nutrition — {v ? buildVariantLabel(v) : "product level"}
-              </p>
-              <NutritionGrid variant={v} product={product} />
-            </div>
-          )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "8px 10px" }}>
+                  <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                    <IndianRupee style={{ width: 10, height: 10 }} /> Price
+                  </div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--a-primary)" }}>
+                      {variant.suggestedPriceINR !== null ? `₹${variant.suggestedPriceINR.toLocaleString("en-IN")}` : "—"}
+                    </span>
+                    {variant.compareAtPriceINR !== null && variant.compareAtPriceINR !== variant.suggestedPriceINR && (
+                      <span style={{ fontSize: 11, color: "var(--a-text-3)", textDecoration: "line-through" }}>
+                        ₹{variant.compareAtPriceINR.toLocaleString("en-IN")}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-          {/* Selected variant SKU summary */}
-          {v && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11, color: "var(--a-text-2)" }}>
-              <span>SKU: <strong style={{ fontFamily: "monospace" }}>{v.sku}</strong></span>
-              {v.sizeWeight && <span>· Size: <strong>{v.sizeWeight}</strong></span>}
-              {v.flavour    && <span>· Flavour: <strong>{v.flavour}</strong></span>}
-              {v.colour     && <span>· Colour: <strong>{v.colour}</strong></span>}
-            </div>
-          )}
+                <div style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "8px 10px" }}>
+                  <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                    <Hash style={{ width: 10, height: 10 }} /> SKU
+                  </div>
+                  <div style={{ fontSize: 12, fontFamily: "monospace" }}>{variant.sku || "—"}</div>
+                </div>
 
-          {/* Price summary */}
-          {price !== null && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 18, fontWeight: 700, color: "var(--a-primary)" }}>
-                ₹{price.toLocaleString("en-IN")}
-              </span>
-              {compareAt !== null && compareAt > price && (
-                <>
-                  <span style={{ fontSize: 13, color: "var(--a-text-3)", textDecoration: "line-through" }}>
-                    ₹{compareAt.toLocaleString("en-IN")}
-                  </span>
-                  <span className="a-badge a-badge-green" style={{ fontSize: 10 }}>
-                    {Math.round((1 - price / compareAt) * 100)}% off
-                  </span>
-                </>
+                <div style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "8px 10px" }}>
+                  <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                    <Layers style={{ width: 10, height: 10 }} /> Size
+                  </div>
+                  <div style={{ fontSize: 12 }}>
+                    {[variant.sizeWeight, variant.flavour, variant.colour].filter(Boolean).join(" · ") || "—"}
+                  </div>
+                </div>
+
+                <div style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "8px 10px" }}>
+                  <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                    <Box style={{ width: 10, height: 10 }} /> Stock
+                  </div>
+                  <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                    {variant.stockQuantity} units
+                    {outOfStock ? (
+                      <span className="a-badge a-badge-red" style={{ fontSize: 9 }}>Out of stock</span>
+                    ) : lowStock ? (
+                      <span className="a-badge a-badge-yellow" style={{ fontSize: 9 }}>Low stock</span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {/* Variant nutrition */}
+              {(nutrition.calories !== null || nutrition.proteinG !== null || nutrition.carbohydratesG !== null || nutrition.fatG !== null) && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 6 }}>
+                    Nutrition {nutrition.servingSizeLabel ? `(per ${nutrition.servingSizeLabel})` : ""}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                    {[
+                      { label: "Calories", val: nutrition.calories, unit: "kcal" },
+                      { label: "Protein",  val: nutrition.proteinG, unit: "g" },
+                      { label: "Carbs",    val: nutrition.carbohydratesG, unit: "g" },
+                      { label: "Fat",      val: nutrition.fatG, unit: "g" },
+                    ].map(({ label, val, unit }) => val !== null && (
+                      <div key={label} style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "8px 6px", textAlign: "center" }}>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: "var(--a-text)" }}>{val}{unit}</p>
+                        <p style={{ fontSize: 10, color: "var(--a-text-3)" }}>{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {(nutrition.fibreG !== null || nutrition.sugarG !== null || nutrition.sodiumMg !== null) && (
+                    <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 11, color: "var(--a-text-3)" }}>
+                      {nutrition.fibreG !== null && <span>Fibre: {nutrition.fibreG}g</span>}
+                      {nutrition.sugarG !== null && <span>Sugar: {nutrition.sugarG}g</span>}
+                      {nutrition.sodiumMg !== null && <span>Sodium: {nutrition.sodiumMg}mg</span>}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
 
-          {/* Ingredients */}
-          {product.ingredients && (
+          {/* Goals & Aim */}
+          {(product.goalTags.length > 0 || product.aimTags.length > 0) && (
             <div>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--a-text-3)", marginBottom: 4 }}>Ingredients</p>
-              <p style={{ fontSize: 12, color: "var(--a-text-2)", lineHeight: 1.6 }}>{product.ingredients}</p>
-            </div>
-          )}
-
-          {/* Warnings */}
-          {product.warningsAllergens && (
-            <div className="a-alert a-alert-warning">
-              <Info style={{ width: 13, height: 13, flexShrink: 0 }} />
-              <div>
-                <p style={{ fontWeight: 600, fontSize: 12, marginBottom: 2 }}>Warnings / Allergens</p>
-                <p style={{ fontSize: 12 }}>{product.warningsAllergens}</p>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 8, letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 5 }}>
+                <Target style={{ width: 11, height: 11 }} /> Goals &amp; Aim
               </div>
+              {product.goalTags.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: product.aimTags.length > 0 ? 8 : 0 }}>
+                  {product.goalTags.map((t) => <GoalBadge key={t} tag={t} />)}
+                </div>
+              )}
+              {product.aimTags.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {product.aimTags.map((t) => <span key={t} className="a-tag">{t}</span>)}
+                </div>
+              )}
             </div>
           )}
 
           {/* Search tags */}
           {product.searchTags.length > 0 && (
             <div>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--a-text-3)", marginBottom: 6 }}>Search Tags</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {product.searchTags.map(t => (
-                  <span key={t} className="a-badge a-badge-neutral" style={{ fontSize: 9 }}>{t}</span>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 8, letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 5 }}>
+                <Tag style={{ width: 11, height: 11 }} /> Search Tags
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {product.searchTags.map((t) => <span key={t} className="a-tag">{t}</span>)}
+              </div>
+            </div>
+          )}
+
+          {/* Description */}
+          {(product.shortDescription || product.fullDescription) && (
+            <div className="a-card" style={{ padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>Product Description</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {product.shortDescription && (
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Short Description</div>
+                    <div style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "pre-wrap" }}>{product.shortDescription}</div>
+                  </div>
+                )}
+                {product.fullDescription && (
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Full Description</div>
+                    <div style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "pre-wrap" }}>{product.fullDescription}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Warnings / Allergens */}
+          {product.warningsAllergens && (
+            <div className="a-alert a-alert-warning" style={{ alignItems: "flex-start" }}>
+              <ShieldAlert style={{ width: 13, height: 13, flexShrink: 0, marginTop: 1 }} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>Warnings &amp; Allergens</div>
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{product.warningsAllergens}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Images */}
+          {product.imageUrls.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 8, letterSpacing: "0.05em" }}>Images</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {product.imageUrls.map((url, i) => (
+                  <div key={i} style={{ width: 64, height: 64, border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", overflow: "hidden", background: "var(--a-surface-2)" }}>
+                    <img src={url} alt={`Image ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer — Edit Product stays accessible from the view, same as the table's Edit button */}
+        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--a-border)", background: "var(--a-surface-2)" }}>
+          <button onClick={onEdit} className="a-btn a-btn-primary" style={{ width: "100%" }}>
+            <Edit2 style={{ width: 14, height: 14 }} /> Edit Product
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Detail panel (slide-in side panel) ───────────────────────────────────
+
+function DetailPanel({
+  product,
+  groups,
+  types,
+  onClose,
+  onRefresh,
+  onAddToStore,
+  isInStore,
+}: {
+  product: CatalogueProduct;
+  groups: ProductGroup[];
+  types: ProductType[];
+  onClose: () => void;
+  onRefresh: () => void;
+  onAddToStore: (p: CatalogueProduct) => void;
+  isInStore: boolean;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const filteredTypes = types.filter(
+    (t) => !product.productGroupId || t.productGroupId === product.productGroupId
+  );
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }
+
+  async function save(field: string, value: unknown) {
+    setSaving(true);
+    const { error } = await updateCatalogueProduct(product.id, { [field]: value } as never);
+    setSaving(false);
+    if (error) { showToast("Save failed: " + error); return; }
+    showToast("Saved");
+    onRefresh();
+  }
+
+  async function saveGroupId(id: string) {
+    await save("product_group_id", id);
+  }
+
+  async function saveTypeId(id: string) {
+    await save("product_type_id", id);
+  }
+
+  const defaultVariant = product.variants.find((v) => v.isDefaultVariant) ?? product.variants[0];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex" }}>
+      <div style={{ flex: 1, background: "rgba(0,0,0,0.4)" }} onClick={onClose} />
+      <div style={{
+        width: "min(560px, 95vw)", background: "var(--a-surface)", borderLeft: "1px solid var(--a-border)",
+        display: "flex", flexDirection: "column", height: "100%", overflowY: "auto",
+      }}>
+        {/* Header */}
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--a-border)", display: "flex", alignItems: "center", gap: 10, background: "var(--a-surface-2)" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{product.productName}</div>
+            <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>
+              {product.productId} · {product.brand}
+            </div>
+          </div>
+          {saving && <RefreshCw style={{ width: 13, height: 13 }} className="animate-spin" />}
+          {toast && <span style={{ fontSize: 11, color: "var(--a-success)", fontWeight: 500 }}>{toast}</span>}
+          <button onClick={onClose} className="a-btn a-btn-ghost a-btn-icon a-btn-sm"><X style={{ width: 14, height: 14 }} /></button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Classification */}
+          <div className="a-card" style={{ padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>Classification</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Product Group</div>
+                <SelectCell
+                  value={product.productGroupName}
+                  options={groups}
+                  onSave={async (id) => { await saveGroupId(id); }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Product Type</div>
+                <SelectCell
+                  value={product.productTypeName}
+                  options={filteredTypes}
+                  onSave={async (id) => { await saveTypeId(id); }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Descriptions */}
+          <div className="a-card" style={{ padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>Descriptions</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Short Description</div>
+                <EditableCell value={product.shortDescription} onSave={(v) => save("short_description", v)} multiline />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Full Description</div>
+                <EditableCell value={product.fullDescription} onSave={(v) => save("full_description", v)} multiline />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Usage Information</div>
+                <EditableCell value={product.usageInformation} onSave={(v) => save("usage_information", v)} multiline />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Ingredients</div>
+                <EditableCell value={product.ingredients} onSave={(v) => save("ingredients", v)} multiline />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Warnings / Allergens</div>
+                <EditableCell value={product.warningsAllergens} onSave={(v) => save("warnings_allergens", v)} multiline />
+              </div>
+            </div>
+          </div>
+
+          {/* Nutrition */}
+          {(product.calories !== null || product.proteinG !== null) && (
+            <div className="a-card" style={{ padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>
+                Nutrition {product.servingSizeLabel ? `(per ${product.servingSizeLabel})` : ""}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                {[
+                  { label: "Calories", val: product.calories, unit: "kcal" },
+                  { label: "Protein",  val: product.proteinG, unit: "g" },
+                  { label: "Carbs",    val: product.carbohydratesG, unit: "g" },
+                  { label: "Fat",      val: product.fatG, unit: "g" },
+                ].map(({ label, val, unit }) => val !== null && (
+                  <div key={label} style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "8px 6px", textAlign: "center" }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "var(--a-text)" }}>{val}{unit}</p>
+                    <p style={{ fontSize: 10, color: "var(--a-text-3)" }}>{label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Goals */}
+          {product.goalTags.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 8, letterSpacing: "0.05em" }}>Goals</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {product.goalTags.map((t) => <GoalBadge key={t} tag={t} />)}
+              </div>
+            </div>
+          )}
+
+          {/* Variants */}
+          {product.variants.length > 0 && (
+            <div className="a-card" style={{ padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>
+                Variants ({product.variants.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {product.variants.map((v) => (
+                  <div key={v.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: v.isDefaultVariant ? "var(--a-primary-light)" : "var(--a-surface-2)", border: `1px solid ${v.isDefaultVariant ? "var(--a-primary)" : "var(--a-border)"}`, borderRadius: "var(--a-radius)" }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 500 }}>{v.variantName || `${v.sizeWeight}${v.flavour ? ` – ${v.flavour}` : ""}`}</div>
+                      <div style={{ fontSize: 10, color: "var(--a-text-3)", fontFamily: "monospace" }}>{v.sku}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      {v.suggestedPriceINR !== null && <div style={{ fontSize: 13, fontWeight: 700, color: "var(--a-primary)" }}>₹{v.suggestedPriceINR.toLocaleString("en-IN")}</div>}
+                      {v.isDefaultVariant && <span className="a-badge a-badge-blue" style={{ fontSize: 9 }}>Default</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Images */}
+          {product.imageUrls.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 8, letterSpacing: "0.05em" }}>Images</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {product.imageUrls.map((url, i) => (
+                  <div key={i} style={{ width: 64, height: 64, border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", overflow: "hidden", background: "var(--a-surface-2)" }}>
+                    <img src={url} alt={`Image ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  </div>
                 ))}
               </div>
             </div>
@@ -413,25 +655,14 @@ function CatalogDetailModal({
         </div>
 
         {/* Footer */}
-        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--a-border)", flexShrink: 0 }}>
-          {product.variants.length > 1 && !selectedVariant && (
-            <p style={{ fontSize: 11, color: "var(--a-danger, #dc2626)", marginBottom: 8, textAlign: "center" }}>
-              ← Select a variant above before adding to store
-            </p>
-          )}
+        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--a-border)", background: "var(--a-surface-2)" }}>
           <button
-            onClick={() => onAddToStore(product, selectedVariant)}
-            className="a-btn a-btn-primary a-btn-lg"
+            onClick={() => onAddToStore(product)}
+            className={`a-btn ${isInStore ? "a-btn-secondary" : "a-btn-primary"}`}
             style={{ width: "100%" }}
-            disabled={product.variants.length > 1 && !selectedVariant}
           >
             <Plus style={{ width: 14, height: 14 }} />
-            {selectedVariant
-              ? `Add "${buildVariantLabel(selectedVariant)}" to Store`
-              : product.variants.length === 1
-                ? `Add "${buildVariantLabel(product.variants[0])}" to Store`
-                : "Select a variant first"
-            }
+            {isInStore ? "Add Another to Store" : "Add to Store"}
           </button>
         </div>
       </div>
@@ -439,506 +670,375 @@ function CatalogDetailModal({
   );
 }
 
-// ── Catalog table row ─────────────────────────────────────────────────────
+// ── CSV Import Modal ──────────────────────────────────────────────────────
 
-function CatalogTableRow({
-  product,
-  onSelect,
-  onAddToStore,
-  imported,
-}: {
-  product: CatalogProduct;
-  onSelect: (p: CatalogProduct) => void;
-  onAddToStore: (p: CatalogProduct, v: CatalogVariant | null) => void;
-  imported: boolean;
-}) {
-  const defaultVariant = product.variants.find(v => v.isDefaultVariant) ?? product.variants[0] ?? null;
-  const [selectedVariant, setSelectedVariant] = useState<CatalogVariant | null>(defaultVariant);
+function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null);
 
-  const price     = selectedVariant?.suggestedPriceINR ?? null;
-  const compareAt = selectedVariant?.compareAtPriceINR ?? null;
-  const prot      = selectedVariant?.proteinG ?? product.proteinG;
-
-  return (
-    <tr>
-      {/* Product */}
-      <td style={{ minWidth: 180, maxWidth: 240 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div className="a-product-thumb" style={{ flexShrink: 0 }}>
-            {product.primaryImageUrl
-              ? <img src={product.primaryImageUrl} alt={product.productName} />
-              : <Package style={{ width: 14, height: 14, color: "var(--a-text-3)" }} />
-            }
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 500, fontSize: 12, color: "var(--a-text)", lineHeight: 1.3, wordBreak: "break-word", display: "flex", alignItems: "center", gap: 6 }}>
-              {product.productName}
-              {imported && (
-                <span className="a-badge a-badge-green" style={{ fontSize: 9, flexShrink: 0 }} title="A store product already exists for this catalog entry">
-                  In Store
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: 10, fontFamily: "monospace", color: "var(--a-text-3)", marginTop: 1 }}>{product.productId}</div>
-          </div>
-        </div>
-      </td>
-
-      {/* Brand */}
-      <td style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>{product.brand}</td>
-
-      {/* Category (broad, customer-facing) */}
-      <td style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>{product.userCategory}</td>
-
-      {/* Type (fine-grained) */}
-      <td style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>{product.type}</td>
-
-      {/* Goals ONLY — Aim is in detail modal */}
-      <td style={{ minWidth: 140 }}>
-        {product.goalTags.length > 0 ? (
-          <TagListWithOverflow
-            items={product.goalTags}
-            max={2}
-            extraCls="a-badge-blue"
-            renderItem={(tag, i) => <GoalBadge key={i} tag={tag} />}
-          />
-        ) : (
-          <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>—</span>
-        )}
-      </td>
-
-      {/* Variant selector */}
-      <td style={{ minWidth: 140, maxWidth: 190 }}>
-        <VariantSelector
-          product={product}
-          value={selectedVariant}
-          onChange={setSelectedVariant}
-        />
-        {product.variants.length > 1 && (
-          <div style={{ fontSize: 9, color: "var(--a-text-3)", marginTop: 2 }}>
-            {product.variants.length} variants
-          </div>
-        )}
-      </td>
-
-      {/* Price */}
-      <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-        {price !== null ? (
-          <div>
-            <span style={{ color: "var(--a-primary)", fontWeight: 600 }}>
-              ₹{price.toLocaleString("en-IN")}
-            </span>
-            {compareAt !== null && compareAt > price && (
-              <div style={{ fontSize: 10, color: "var(--a-text-3)", textDecoration: "line-through" }}>
-                ₹{compareAt.toLocaleString("en-IN")}
-              </div>
-            )}
-          </div>
-        ) : "—"}
-      </td>
-
-      {/* Protein */}
-      <td style={{ fontSize: 12, color: "var(--a-text-2)", whiteSpace: "nowrap" }}>
-        {prot !== null ? `${prot}g` : "—"}
-      </td>
-
-      {/* Actions — fixed width so they never go offscreen */}
-      <td style={{ whiteSpace: "nowrap", width: 140 }}>
-        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-          <button
-            onClick={() => onSelect(product)}
-            className="a-btn a-btn-ghost a-btn-sm"
-            style={{ fontSize: 11, padding: "0 8px" }}
-            title="View details"
-          >
-            <ChevronRight style={{ width: 12, height: 12 }} />
-            Details
-          </button>
-          <button
-            onClick={() => onAddToStore(product, selectedVariant)}
-            className={`a-btn a-btn-sm ${imported ? "a-btn-secondary" : "a-btn-primary"}`}
-            style={{ fontSize: 11, padding: "0 8px" }}
-            title={imported ? "Already in store — add another product from this catalog entry anyway" : "Add to store"}
-          >
-            <Plus style={{ width: 12, height: 12 }} />
-            {imported ? "Add Another" : "Add"}
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-// ── Pagination controls ───────────────────────────────────────────────────
-
-function Pagination({
-  page,
-  totalPages,
-  total,
-  showing,
-  onPage,
-}: {
-  page: number;
-  totalPages: number;
-  total: number;
-  showing: number;
-  onPage: (p: number) => void;
-}) {
-  if (totalPages <= 1) {
-    return (
-      <div className="a-pagination">
-        <span>Showing {showing} of {total} product{total !== 1 ? "s" : ""}</span>
-      </div>
-    );
+  async function handleImport() {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const { parse } = await import("papaparse");
+      const parsed = parse<CatalogueImportRow>(text, { header: true, skipEmptyLines: true });
+      const res = await importCatalogueFromRows(parsed.data);
+      setResult(res);
+    } catch (e) {
+      setResult({ imported: 0, errors: [(e as Error).message] });
+    }
+    setImporting(false);
   }
 
-  // Build page numbers: always show first, last, current ±1
-  const pages: (number | "…")[] = [];
-  const add = (n: number) => { if (!pages.includes(n)) pages.push(n); };
-  add(1);
-  if (page > 3) pages.push("…");
-  if (page > 2) add(page - 1);
-  add(page);
-  if (page < totalPages - 1) add(page + 1);
-  if (page < totalPages - 2) pages.push("…");
-  add(totalPages);
-
   return (
-    <div className="a-pagination">
-      <span>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} product{total !== 1 ? "s" : ""}</span>
-      <div className="a-pagination-btns">
-        <button
-          className="a-page-btn"
-          disabled={page === 1}
-          onClick={() => onPage(page - 1)}
-          title="Previous page"
-        >
-          <ChevronLeft style={{ width: 12, height: 12 }} />
-        </button>
-        {pages.map((p, i) =>
-          p === "…"
-            ? <span key={`ellipsis-${i}`} style={{ padding: "0 4px", fontSize: 12, color: "var(--a-text-3)" }}>…</span>
-            : (
-              <button
-                key={p}
-                className={`a-page-btn${page === p ? " active" : ""}`}
-                onClick={() => onPage(p as number)}
-              >
-                {p}
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", padding: 16 }}>
+      <div style={{ background: "var(--a-surface)", borderRadius: "var(--a-radius-lg)", border: "1px solid var(--a-border)", width: "100%", maxWidth: 480, padding: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Bulk Import from CSV</div>
+          <button onClick={onClose} className="a-btn a-btn-ghost a-btn-icon a-btn-sm"><X style={{ width: 14, height: 14 }} /></button>
+        </div>
+
+        <div className="a-alert a-alert-info" style={{ marginBottom: 16 }}>
+          <Info style={{ width: 13, height: 13, flexShrink: 0 }} />
+          <span style={{ fontSize: 12 }}>CSV is only for initial and bulk import. The database is always the source of truth after import.</span>
+        </div>
+
+        {!result ? (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 6 }}>Select CSV file</label>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                style={{ fontSize: 13 }}
+              />
+              <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 6 }}>
+                Expected columns: product_id, product_name, slug, brand, user_category, category, … (same as product_catalog.csv)
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={onClose} className="a-btn a-btn-secondary">Cancel</button>
+              <button onClick={handleImport} disabled={!file || importing} className="a-btn a-btn-primary">
+                {importing ? <><RefreshCw style={{ width: 13, height: 13 }} className="animate-spin" /> Importing…</> : <><Upload style={{ width: 13, height: 13 }} /> Import</>}
               </button>
-            )
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={`a-alert ${result.errors.length === 0 ? "a-alert-success" : "a-alert-warning"}`} style={{ marginBottom: 12 }}>
+              {result.errors.length === 0 ? <Check style={{ width: 13, height: 13 }} /> : <AlertTriangle style={{ width: 13, height: 13 }} />}
+              <span style={{ fontSize: 13 }}>{result.imported} products imported successfully.</span>
+            </div>
+            {result.errors.length > 0 && (
+              <div style={{ maxHeight: 160, overflowY: "auto", fontSize: 11, color: "var(--a-danger)", background: "var(--a-danger-bg)", border: "1px solid var(--a-danger-border)", borderRadius: "var(--a-radius)", padding: 10, marginBottom: 12 }}>
+                {result.errors.map((e, i) => <div key={i}>{e}</div>)}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={onClose} className="a-btn a-btn-secondary">Close</button>
+              <button onClick={() => { onDone(); onClose(); }} className="a-btn a-btn-primary">View Catalogue</button>
+            </div>
+          </>
         )}
-        <button
-          className="a-page-btn"
-          disabled={page === totalPages}
-          onClick={() => onPage(page + 1)}
-          title="Next page"
-        >
-          <ChevronRight style={{ width: 12, height: 12 }} />
-        </button>
       </div>
     </div>
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────
+// ── Main Page ─────────────────────────────────────────────────────────────
 
 export default function AdminCatalogPage() {
   const router = useRouter();
+  const [products, setProducts] = useState<CatalogueProduct[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
 
-  const [catalog, setCatalog]               = useState<CatalogProduct[]>([]);
-  const [loading, setLoading]               = useState(true);
-  const [search, setSearch]                 = useState("");
-  const [categoryFilter, setCategoryFilter] = useState(""); // broad user_category
-  const [typeFilter, setTypeFilter]         = useState(""); // fine-grained type
-  const [goalFilter, setGoalFilter]         = useState("");
-  const [page, setPage]                     = useState(1);
+  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [groupFilter, setGroupFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
 
-  // Detail modal
-  const [selected, setSelected]             = useState<CatalogProduct | null>(null);
-  const [modalVariant, setModalVariant]     = useState<CatalogVariant | null>(null);
+  const [groups, setGroups] = useState<ProductGroup[]>([]);
+  const [types, setTypes] = useState<ProductType[]>([]);
 
-  // Which catalog product_ids already have a matching store product
+  const [selectedProduct, setSelectedProduct] = useState<CatalogueProduct | null>(null);
+  const [viewedProduct, setViewedProduct] = useState<CatalogueProduct | null>(null);
   const [importedIds, setImportedIds] = useState<Set<string>>(new Set());
-  const refreshImportedIds = () => {
-    import("@/lib/storeAdminApi").then(({ adminFetchImportedCatalogIds }) =>
-      adminFetchImportedCatalogIds().then(setImportedIds)
-    );
-  };
-  useEffect(() => { refreshImportedIds(); }, []);
+  const [showImport, setShowImport] = useState(false);
 
-  // Re-check import status when the admin navigates back to this tab/page
-  // (e.g. after adding a product and clicking Back), so the "In Store"
-  // badge doesn't go stale on client-side navigation.
-  useEffect(() => {
-    function onVisible() {
-      if (document.visibilityState === "visible") refreshImportedIds();
-    }
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", refreshImportedIds);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", refreshImportedIds);
-    };
-  }, []);
+  const filteredTypes = types.filter((t) => !groupFilter || t.productGroupId === groupFilter);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { getProductCatalog } = await import("@/lib/productCatalog");
-        const data = await getProductCatalog();
-        if (!cancelled) { setCatalog(data); setLoading(false); }
-      } catch (err) {
-        console.error("[AdminCatalog] Failed to load catalog:", err);
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+    fetchAllProductGroups().then(setGroups);
+    fetchAllProductTypes().then(setTypes);
+    adminFetchImportedCatalogIds().then(setImportedIds);
   }, []);
 
-  // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, categoryFilter, typeFilter, goalFilter]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { products: p, total: t } = await fetchCatalogue({
+      search: search || undefined,
+      productGroupId: groupFilter || undefined,
+      productTypeId: typeFilter || undefined,
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+    });
+    setProducts(p);
+    setTotal(t);
+    setLoading(false);
+  }, [search, groupFilter, typeFilter, page]);
 
-  function openModal(product: CatalogProduct) {
-    setSelected(product);
-    const def = product.variants.find(v => v.isDefaultVariant) ?? product.variants[0] ?? null;
-    setModalVariant(def);
+  useEffect(() => { load(); }, [load]);
+
+  async function refreshSelected(id: string) {
+    const p = await fetchCatalogueProductById(id);
+    if (p) setSelectedProduct(p);
+    load();
   }
 
-  // Broad customer-facing categories (user_category)
-  const categories = useMemo(() => {
-    const s = new Set(catalog.map(p => p.userCategory).filter(Boolean));
-    return Array.from(s).sort();
-  }, [catalog]);
-
-  // Fine-grained types (category column) — scoped to the selected broad
-  // category when one is chosen, so the Type dropdown stays relevant.
-  const types = useMemo(() => {
-    const scoped = categoryFilter ? catalog.filter(p => p.userCategory === categoryFilter) : catalog;
-    const s = new Set(scoped.map(p => p.type).filter(Boolean));
-    return Array.from(s).sort();
-  }, [catalog, categoryFilter]);
-
-  const filtered = useMemo(() => catalog.filter(p => {
-    if (search.trim() &&
-      !p.productName.toLowerCase().includes(search.toLowerCase()) &&
-      !p.brand.toLowerCase().includes(search.toLowerCase()) &&
-      !p.userCategory.toLowerCase().includes(search.toLowerCase()) &&
-      !p.type.toLowerCase().includes(search.toLowerCase()) &&
-      !p.searchTags.some(t => t.toLowerCase().includes(search.toLowerCase())) &&
-      !p.aimTags.some(t => t.toLowerCase().includes(search.toLowerCase()))
-    ) return false;
-    if (categoryFilter && p.userCategory !== categoryFilter) return false;
-    if (typeFilter && p.type !== typeFilter) return false;
-    if (goalFilter && !p.goalTags.includes(goalFilter)) return false;
-    return true;
-  }), [catalog, search, categoryFilter, typeFilter, goalFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage   = Math.min(page, totalPages);
-  const pageItems  = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-
-  function handleAddToStore(product: CatalogProduct, variant: CatalogVariant | null) {
-    const v = variant ?? (product.variants.length === 1 ? product.variants[0] : null);
+  function handleAddToStore(product: CatalogueProduct) {
+    const v = product.variants.find((v) => v.isDefaultVariant) ?? product.variants[0];
     const params = new URLSearchParams({
-      from_catalog:        "1",
-      catalog_id:          product.productId,
-      name:                product.productName,
-      brand:               product.brand,
-      user_category:       product.userCategory,
-      type:                product.type,
-      slug:                product.slug,
-      short_description:   product.shortDescription,
-      full_description:    product.fullDescription,
-      usage_info:          product.usageInformation,
-      ingredients:         product.ingredients,
-      warnings:            product.warningsAllergens,
-      images:              JSON.stringify(product.imageUrls),
-      goal_tags:           JSON.stringify(product.goalTags),
-      search_tags:         JSON.stringify(product.searchTags),
-      serving_size_label:  (v?.servingSizeLabel || product.servingSizeLabel),
-      serving_size_g:      (v?.servingSizeG     ?? product.servingSizeG)?.toString()  ?? "",
-      calories:            (v?.calories         ?? product.calories)?.toString()       ?? "",
-      protein_g:           (v?.proteinG         ?? product.proteinG)?.toString()       ?? "",
-      carbohydrates_g:     (v?.carbohydratesG   ?? product.carbohydratesG)?.toString() ?? "",
-      fat_g:               (v?.fatG             ?? product.fatG)?.toString()           ?? "",
-      fibre_g:             (v?.fibreG           ?? product.fibreG)?.toString()         ?? "",
-      sugar_g:             (v?.sugarG           ?? product.sugarG)?.toString()         ?? "",
-      sodium_mg:           (v?.sodiumMg         ?? product.sodiumMg)?.toString()       ?? "",
-      variants:            JSON.stringify(product.variants),
+      from_catalog:       "1",
+      catalog_id:         product.productId,
+      name:               product.productName,
+      brand:              product.brand,
+      user_category:      product.productGroupName,
+      type:               product.productTypeName,
+      slug:               product.slug,
+      short_description:  product.shortDescription,
+      full_description:   product.fullDescription,
+      usage_info:         product.usageInformation,
+      ingredients:        product.ingredients,
+      warnings:           product.warningsAllergens,
+      images:             JSON.stringify(product.imageUrls),
+      goal_tags:          JSON.stringify(product.goalTags),
+      search_tags:        JSON.stringify(product.searchTags),
+      variants:           JSON.stringify(product.variants),
       selected_variant_id: v?.variantId ?? "",
     });
     router.push(`/admin/products/new?${params.toString()}`);
   }
 
-  const hasFilters = !!(search || categoryFilter || typeFilter || goalFilter);
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const hasFilters = !!(search || groupFilter || typeFilter);
 
   return (
     <div style={{ maxWidth: 1280 }}>
-      {/* Page header */}
+      {/* Header */}
       <div className="a-page-header">
         <div>
-          <h2 className="a-page-title">Product Catalog</h2>
+          <h2 className="a-page-title">Product Catalogue</h2>
           <p className="a-page-subtitle">
-            Read-only template library — select a variant, then click <strong>Add</strong> to prefill the product form.
+            The database is the source of truth. Edit product info inline. CSV is for bulk import only.
           </p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowImport(true)} className="a-btn a-btn-secondary">
+            <Upload style={{ width: 13, height: 13 }} /> Import CSV
+          </button>
+          <button onClick={load} className="a-btn a-btn-secondary a-btn-icon" title="Refresh">
+            <RefreshCw style={{ width: 13, height: 13 }} className={loading ? "animate-spin" : ""} />
+          </button>
           <span className="a-badge a-badge-neutral">
-            <Layers style={{ width: 10, height: 10 }} />
-            {loading ? "…" : `${catalog.length} products`}
+            <BookOpen style={{ width: 10, height: 10 }} />
+            {loading ? "…" : `${total} products`}
           </span>
         </div>
       </div>
 
       {/* Info banner */}
       <div className="a-alert a-alert-info" style={{ marginBottom: 16 }}>
-        <Info style={{ width: 14, height: 14, flexShrink: 0, marginTop: 1 }} />
-        <div style={{ fontSize: 12 }}>
-          <strong>How this works:</strong>{" "}
-          Browse catalog → select a <strong>variant</strong> → click <strong>Add</strong> → edit price/stock/publishing → save to your store.
-          Click <strong>Details</strong> to see full product info including Aim, ingredients, and nutrition.
-        </div>
+        <Info style={{ width: 13, height: 13, flexShrink: 0 }} />
+        <span style={{ fontSize: 12 }}>
+          <strong>Catalogue → Store Products flow:</strong> Edit product info here (it updates the DB) → click <strong>Add to Store</strong> to create an active store listing. Editing here does <em>not</em> auto-add to inventory.
+        </span>
       </div>
 
       {/* Filter bar */}
       <div className="a-filter-bar">
-        <div className="a-search-wrap" style={{ flex: 1, minWidth: 200 }}>
-          <Search />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, brand, category, type, tag…"
-            className="a-search-input"
-          />
-        </div>
+        <form onSubmit={(e) => { e.preventDefault(); setPage(0); setSearch(searchInput); }} style={{ display: "flex", gap: 6, flex: 1, minWidth: 200 }}>
+          <div className="a-search-wrap">
+            <Search />
+            <input
+              type="text" value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by name, brand…"
+              className="a-search-input"
+            />
+          </div>
+          <button type="submit" className="a-btn a-btn-secondary" style={{ height: 32 }}>Search</button>
+        </form>
 
-        <select
-          value={categoryFilter}
-          onChange={e => { setCategoryFilter(e.target.value); setTypeFilter(""); }}
-          className="a-filter-select"
-          title="Broad category customers browse on the storefront"
-        >
-          <option value="">All Categories</option>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        <select value={groupFilter} onChange={(e) => { setGroupFilter(e.target.value); setTypeFilter(""); setPage(0); }} className="a-filter-select">
+          <option value="">All Product Groups</option>
+          {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
         </select>
 
-        <select
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-          className="a-filter-select"
-          title="Fine-grained product type — further filtration"
-        >
-          <option value="">All Types</option>
-          {types.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-
-        <select value={goalFilter} onChange={e => setGoalFilter(e.target.value)} className="a-filter-select">
-          <option value="">All Goals</option>
-          <option value="weight-gain">Weight Gain</option>
-          <option value="weight-loss">Weight Loss</option>
-          <option value="muscle-building">Muscle Building</option>
-          <option value="general-fitness">General Fitness</option>
+        <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(0); }} className="a-filter-select">
+          <option value="">All Product Types</option>
+          {filteredTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
 
         {hasFilters && (
-          <button
-            onClick={() => { setSearch(""); setCategoryFilter(""); setTypeFilter(""); setGoalFilter(""); }}
-            className="a-btn a-btn-ghost"
-            style={{ height: 32, fontSize: 12, color: "var(--a-danger)" }}
-          >
+          <button onClick={() => { setSearch(""); setSearchInput(""); setGroupFilter(""); setTypeFilter(""); setPage(0); }} className="a-btn a-btn-ghost" style={{ height: 32, fontSize: 12, color: "var(--a-danger)" }}>
             <X style={{ width: 12, height: 12 }} /> Clear
           </button>
         )}
       </div>
 
-      {/* Table card */}
+      {/* Table */}
       <div className="a-card" style={{ overflow: "hidden" }}>
         {loading ? (
-          <div className="a-loading">
-            <RefreshCw style={{ width: 16, height: 16 }} className="animate-spin" />
-            Loading catalog…
-          </div>
-        ) : catalog.length === 0 ? (
+          <div className="a-loading"><RefreshCw style={{ width: 16, height: 16 }} className="animate-spin" />Loading catalogue…</div>
+        ) : total === 0 && !hasFilters ? (
           <div className="a-empty">
             <div className="a-empty-icon"><BookOpen style={{ width: 18, height: 18 }} /></div>
-            <div className="a-empty-title">Catalog is empty</div>
-            <p className="a-empty-sub">
-              Add products to <code style={{ fontSize: 11, background: "var(--a-surface-2)", padding: "1px 5px", borderRadius: 3, border: "1px solid var(--a-border)" }}>src/data/product_catalog.csv</code> to populate.
-            </p>
+            <div className="a-empty-title">Catalogue is empty</div>
+            <p className="a-empty-sub">Use the Import CSV button to populate the catalogue from your product_catalog.csv file.</p>
+            <button onClick={() => setShowImport(true)} className="a-btn a-btn-primary"><Upload style={{ width: 13, height: 13 }} /> Import CSV</button>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : products.length === 0 ? (
           <div className="a-empty">
             <div className="a-empty-icon"><Package style={{ width: 18, height: 18 }} /></div>
             <div className="a-empty-title">No products match</div>
             <div className="a-empty-sub">Try adjusting your search or filters.</div>
-            <button onClick={() => { setSearch(""); setCategoryFilter(""); setTypeFilter(""); setGoalFilter(""); }} className="a-btn a-btn-secondary">Clear filters</button>
+            <button onClick={() => { setSearch(""); setSearchInput(""); setGroupFilter(""); setTypeFilter(""); }} className="a-btn a-btn-secondary">Clear filters</button>
           </div>
         ) : (
           <>
             <div className="a-table-wrap" style={{ overflowX: "auto" }}>
-              <table className="a-table" style={{ tableLayout: "fixed", width: "100%", minWidth: 960 }}>
-                <colgroup>
-                  <col style={{ width: "20%" }}/>
-                  <col style={{ width: "9%"  }}/>
-                  <col style={{ width: "10%" }}/>
-                  <col style={{ width: "10%" }}/>
-                  <col style={{ width: "14%" }}/>
-                  <col style={{ width: "15%" }}/>
-                  <col style={{ width: "8%"  }}/>
-                  <col style={{ width: "6%"  }}/>
-                  <col style={{ width: "8%"  }}/>
-                </colgroup>
+              <table className="a-table" style={{ minWidth: 900 }}>
                 <thead>
                   <tr>
+                    <th style={{ width: 36 }}>#</th>
                     <th>Product</th>
                     <th>Brand</th>
-                    <th title="Broad category customers browse on the storefront">Category</th>
-                    <th title="Fine-grained product type — further filtration">Type</th>
+                    <th>Product Group</th>
+                    <th>Product Type</th>
                     <th>Goals</th>
-                    <th>Variant</th>
-                    <th>Price</th>
-                    <th>Protein</th>
+                    <th>Variants</th>
                     <th style={{ textAlign: "right" }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pageItems.map(product => (
-                    <CatalogTableRow
-                      key={product.productId}
-                      product={product}
-                      onSelect={openModal}
-                      onAddToStore={(p, v) => handleAddToStore(p, v)}
-                      imported={importedIds.has(product.productId)}
-                    />
-                  ))}
+                  {products.map((p, i) => {
+                    const inStore = importedIds.has(p.productId);
+                    return (
+                      <tr key={p.id}>
+                        <td style={{ color: "var(--a-text-3)", fontSize: 12 }}>{page * PAGE_SIZE + i + 1}</td>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div className="a-product-thumb" style={{ flexShrink: 0 }}>
+                              {p.imageUrls[0]
+                                ? <img src={p.imageUrls[0]} alt={p.productName} />
+                                : <Package style={{ width: 14, height: 14, color: "var(--a-text-3)" }} />}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 500, fontSize: 12, display: "flex", alignItems: "center", gap: 5 }}>
+                                {p.productName}
+                                {inStore && <span className="a-badge a-badge-green" style={{ fontSize: 9 }}>In Store</span>}
+                              </div>
+                              <div style={{ fontSize: 10, fontFamily: "monospace", color: "var(--a-text-3)" }}>{p.productId}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <EditableCell value={p.brand} onSave={async (v) => { await updateCatalogueProduct(p.id, { brand: v }); load(); }} />
+                        </td>
+                        <td>
+                          <SelectCell
+                            value={p.productGroupName}
+                            options={groups}
+                            onSave={async (id) => { await updateCatalogueProduct(p.id, { product_group_id: id }); load(); }}
+                          />
+                        </td>
+                        <td>
+                          <SelectCell
+                            value={p.productTypeName}
+                            options={types.filter((t) => !p.productGroupId || t.productGroupId === p.productGroupId)}
+                            onSave={async (id) => { await updateCatalogueProduct(p.id, { product_type_id: id }); load(); }}
+                          />
+                        </td>
+                        <td>
+                          {p.goalTags.length > 0 ? (
+                            <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                              {p.goalTags.slice(0, 2).map((t) => <GoalBadge key={t} tag={t} />)}
+                              {p.goalTags.length > 2 && <span className="a-badge a-badge-neutral" style={{ fontSize: 9 }}>+{p.goalTags.length - 2}</span>}
+                            </div>
+                          ) : <span style={{ color: "var(--a-text-4)", fontSize: 12 }}>—</span>}
+                        </td>
+                        <td style={{ fontSize: 12, color: "var(--a-text-2)" }}>
+                          {p.variants.length > 0 ? `${p.variants.length} variant${p.variants.length !== 1 ? "s" : ""}` : <span style={{ color: "var(--a-text-4)" }}>—</span>}
+                        </td>
+                        <td>
+                          <div className="a-table-actions">
+                            <button onClick={() => setViewedProduct(p)} className="a-btn a-btn-ghost a-btn-sm" style={{ fontSize: 11 }}>
+                              <Eye style={{ width: 11, height: 11 }} /> View
+                            </button>
+                            <button onClick={() => setSelectedProduct(p)} className="a-btn a-btn-ghost a-btn-sm" style={{ fontSize: 11 }}>
+                              <Edit2 style={{ width: 11, height: 11 }} /> Edit
+                            </button>
+                            <button onClick={() => handleAddToStore(p)} className={`a-btn a-btn-sm ${inStore ? "a-btn-secondary" : "a-btn-primary"}`} style={{ fontSize: 11 }}>
+                              <Plus style={{ width: 11, height: 11 }} /> {inStore ? "Re-add" : "Add"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
             {/* Pagination */}
-            <Pagination
-              page={safePage}
-              totalPages={totalPages}
-              total={filtered.length}
-              showing={pageItems.length}
-              onPage={p => { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-            />
+            {totalPages > 1 && (
+              <div className="a-pagination">
+                <span>{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}</span>
+                <div className="a-pagination-btns">
+                  <button onClick={() => setPage((p) => p - 1)} disabled={page === 0} className="a-page-btn"><ChevronLeft style={{ width: 14, height: 14 }} /></button>
+                  {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => (
+                    <button key={i} onClick={() => setPage(i)} className={`a-page-btn ${i === page ? "active" : ""}`}>{i + 1}</button>
+                  ))}
+                  <button onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1} className="a-page-btn"><ChevronRight style={{ width: 14, height: 14 }} /></button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
 
-      {/* Detail modal */}
-      {selected && (
-        <CatalogDetailModal
-          product={selected}
-          selectedVariant={modalVariant}
-          onVariantChange={setModalVariant}
-          onClose={() => { setSelected(null); setModalVariant(null); }}
-          onAddToStore={(p, v) => { setSelected(null); setModalVariant(null); handleAddToStore(p, v); }}
-          imported={importedIds.has(selected.productId)}
+      {/* Read-only product-detail view (restored) */}
+      {viewedProduct && !selectedProduct && (
+        <ProductDetailView
+          product={viewedProduct}
+          onClose={() => setViewedProduct(null)}
+          onEdit={() => { setSelectedProduct(viewedProduct); setViewedProduct(null); }}
+        />
+      )}
+
+      {/* Detail side panel (existing Add/Edit Product functionality, unchanged) */}
+      {selectedProduct && (
+        <DetailPanel
+          product={selectedProduct}
+          groups={groups}
+          types={types}
+          onClose={() => setSelectedProduct(null)}
+          onRefresh={() => refreshSelected(selectedProduct.id)}
+          onAddToStore={(p) => { setSelectedProduct(null); handleAddToStore(p); }}
+          isInStore={importedIds.has(selectedProduct.productId)}
+        />
+      )}
+
+      {/* CSV import modal */}
+      {showImport && (
+        <CsvImportModal
+          onClose={() => setShowImport(false)}
+          onDone={() => { load(); fetchAllProductGroups().then(setGroups); fetchAllProductTypes().then(setTypes); }}
         />
       )}
     </div>
