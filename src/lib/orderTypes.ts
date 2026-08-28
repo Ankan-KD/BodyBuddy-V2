@@ -24,7 +24,15 @@ export type OrderStatus =
   | "delivered"
   | "cancelled";
 
-export type PaymentMethod = "cod" | "upi" | "card" | "netbanking";
+export type PaymentMethod =
+  | "razorpay"
+  | "upi"
+  | "card"
+  | "netbanking"
+  | "wallet"
+  | "emi"
+  | "cod"
+  | "other";
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 
 // ── Order Item ────────────────────────────────────────────────────────────
@@ -58,6 +66,8 @@ export interface StoreOrder {
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
   paymentReference: string | null;
+  razorpayOrderId: string | null;
+  razorpayPaymentId: string | null;
   subtotalPaise: number;
   discountPaise: number;
   deliveryPaise: number;
@@ -94,6 +104,8 @@ export interface OrderRow {
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   payment_reference: string | null;
+  razorpay_order_id: string | null;
+  razorpay_payment_id: string | null;
   subtotal_paise: number;
   discount_paise: number;
   delivery_paise: number;
@@ -135,6 +147,8 @@ export function orderFromRow(r: OrderRow): StoreOrder {
     paymentMethod: r.payment_method,
     paymentStatus: r.payment_status,
     paymentReference: r.payment_reference,
+    razorpayOrderId: r.razorpay_order_id,
+    razorpayPaymentId: r.razorpay_payment_id,
     subtotalPaise: Number(r.subtotal_paise),
     discountPaise: Number(r.discount_paise),
     deliveryPaise: Number(r.delivery_paise),
@@ -186,8 +200,12 @@ export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
 };
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  razorpay: "Razorpay",
   cod: "Cash on Delivery",
   upi: "UPI",
   card: "Credit / Debit Card",
   netbanking: "Net Banking",
+  wallet: "Wallet",
+  emi: "EMI",
+  other: "Online Payment",
 };

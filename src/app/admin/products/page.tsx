@@ -123,7 +123,7 @@ export default function AdminProductsPage() {
     setLoading(true);
     const opts: Record<string, unknown> = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
     if (search) opts.search = search;
-    if (groupFilter) opts.categoryId = groupFilter;
+    if (groupFilter) opts.productGroupId = groupFilter;
     if (typeFilter) opts.productType = typeFilter;
     if (published !== "") opts.published = published === "true";
     const result = await adminFetchProducts(opts);
@@ -317,8 +317,8 @@ export default function AdminProductsPage() {
 
                         {/* Product Group */}
                         <td style={{ color: "var(--a-text-2)", fontSize: 12 }}>
-                          {product.category?.name
-                            ? product.category.name
+                          {product.productGroup?.name
+                            ? product.productGroup.name
                             : <span style={{ color: "var(--a-text-4)" }}>—</span>}
                         </td>
 
@@ -422,7 +422,7 @@ export default function AdminProductsPage() {
                       </div>
                     )}
                     <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 2 }}>
-                      {product.category?.name ?? "—"}{product.productType ? ` · ${product.productType}` : ""}
+                      {product.productGroup?.name ?? "—"}{product.productType ? ` · ${product.productType}` : ""}
                     </div>
                     <div style={{ display: "flex", gap: 4, marginTop: 5, flexWrap: "wrap" }}>
                       <VisibilityBadge

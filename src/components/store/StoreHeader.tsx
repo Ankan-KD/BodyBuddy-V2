@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShoppingCart, ArrowLeft } from "lucide-react";
+import { ShoppingCart, ArrowLeft, UserCircle } from "lucide-react";
 import { useCart } from "@/lib/cartContext";
 
 const ROUTE_TITLES: Record<string, string> = {
@@ -15,6 +15,7 @@ const ROUTE_TITLES: Record<string, string> = {
   "/store/orders": "My Orders",
   "/store/goals": "Shop by Goal",
   "/store/deals": "Deals",
+  "/store/profile": "My Profile",
 };
 
 export function StoreHeader() {
@@ -73,6 +74,14 @@ export function StoreHeader() {
               ← BB Health
             </Link>
           )}
+          {/* Store profile (delivery details) */}
+          <Link
+            href="/store/profile"
+            aria-label="My Profile"
+            className="h-9 w-9 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-amber-500/10 transition-colors"
+          >
+            <UserCircle className="w-5 h-5" />
+          </Link>
           {/* Cart icon with live badge */}
           <Link
             href="/store/cart"

@@ -5,20 +5,21 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Package, BookOpen, Tag,
   ShoppingBag, Users, Percent, Warehouse,
-  Settings, LogOut, ShieldCheck, X,
+  Settings, LogOut, ShieldCheck, X, Sun, Moon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useAdminTheme } from "@/lib/adminTheme";
 
 const NAV_ITEMS = [
-  { href: "/admin/dashboard",  label: "Dashboard",       Icon: LayoutDashboard },
-  { href: "/admin/products",   label: "Store Products",  Icon: Package         },
-  { href: "/admin/catalog",    label: "Product Catalogue", Icon: BookOpen        },
-  { href: "/admin/categories", label: "Product Groups & Types",      Icon: Tag             },
-  { href: "/admin/orders",     label: "Orders",          Icon: ShoppingBag     },
-  { href: "/admin/customers",  label: "Customers",       Icon: Users           },
-  { href: "/admin/offers",     label: "Offers",          Icon: Percent         },
-  { href: "/admin/inventory",  label: "Inventory",       Icon: Warehouse       },
-  { href: "/admin/settings",   label: "Settings",        Icon: Settings        },
+  { href: "/admin/dashboard",  label: "Dashboard",              Icon: LayoutDashboard },
+  { href: "/admin/products",   label: "Store Products",         Icon: Package         },
+  { href: "/admin/catalog",    label: "Product Catalogue",      Icon: BookOpen        },
+  { href: "/admin/categories", label: "Product Groups & Types", Icon: Tag             },
+  { href: "/admin/orders",     label: "Orders",                 Icon: ShoppingBag     },
+  { href: "/admin/customers",  label: "Customers",              Icon: Users           },
+  { href: "/admin/offers",     label: "Offers",                 Icon: Percent         },
+  { href: "/admin/inventory",  label: "Inventory",              Icon: Warehouse       },
+  { href: "/admin/settings",   label: "Settings",               Icon: Settings        },
 ];
 
 interface Props { open: boolean; onClose: () => void; }
@@ -27,6 +28,7 @@ export function AdminSidebar({ open, onClose }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
   const { signOut } = useAuth();
+  const { theme, toggleTheme, isDark } = useAdminTheme();
 
   async function handleSignOut() {
     await signOut();
@@ -87,6 +89,27 @@ export function AdminSidebar({ open, onClose }: Props) {
 
         {/* ── Footer ─────────────────────────────────────────────── */}
         <div className="a-sidebar-footer">
+
+          {/* Theme toggle */}
+          <button
+            onClick={toggleTheme}
+            className="a-theme-toggle"
+            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {isDark ? (
+              <Sun style={{ width: 14, height: 14 }} />
+            ) : (
+              <Moon style={{ width: 14, height: 14 }} />
+            )}
+            {isDark ? "Light mode" : "Dark mode"}
+            {/* Toggle pill */}
+            <span className="a-theme-track" aria-hidden="true">
+              <span className="a-theme-knob" />
+            </span>
+          </button>
+
+          {/* Sign out */}
           <button onClick={handleSignOut} className="a-sidebar-signout">
             <LogOut style={{ width: 14, height: 14 }} />
             Sign out

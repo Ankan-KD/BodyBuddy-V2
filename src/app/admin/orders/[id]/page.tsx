@@ -17,10 +17,13 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
+  Printer,
+  Download,
 } from "lucide-react";
 import {
   adminFetchOrderById,
   adminUpdateOrderStatus,
+  adminFetchSettings,
 } from "@/lib/storeAdminApi";
 import type { StoreOrder, OrderStatus } from "@/lib/orderTypes";
 import {
@@ -28,8 +31,11 @@ import {
   ORDER_STATUS_COLORS,
   PAYMENT_METHOD_LABELS,
 } from "@/lib/orderTypes";
+import type { StoreSettings } from "@/lib/offerTypes";
 import { formatPriceINR } from "@/lib/cartContext";
 import { cn } from "@/lib/utils";
+import { downloadReceiptPdf } from "@/lib/receiptPdf";
+import { printShippingLabel, downloadShippingLabel } from "@/lib/shippingLabelPdf";
 
 // ── Status lifecycle definition ───────────────────────────────────────────
 
@@ -100,6 +106,7 @@ export default function AdminOrderDetailPage() {
   const router = useRouter();
 
   const [order, setOrder] = useState<StoreOrder | null>(null);
+  const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -107,8 +114,9 @@ export default function AdminOrderDetailPage() {
 
   useEffect(() => {
     if (!id) return;
-    adminFetchOrderById(id).then((o) => {
+    Promise.all([adminFetchOrderById(id), adminFetchSettings()]).then(([o, s]) => {
       setOrder(o);
+      setSettings(s);
       setLoading(false);
     });
   }, [id]);
@@ -402,6 +410,18 @@ export default function AdminOrderDetailPage() {
                   {order.paymentStatus.charAt(0).toUpperCase() + order.paymentStatus.slice(1)}
                 </span>
               </div>
+              {order.razorpayOrderId && (
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 12, color: "var(--a-text-muted)" }}>Razorpay Order ID</span>
+                  <span style={{ fontSize: 11, fontFamily: "monospace" }}>{order.razorpayOrderId}</span>
+                </div>
+              )}
+              {order.razorpayPaymentId && (
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 12, color: "var(--a-text-muted)" }}>Razorpay Payment ID</span>
+                  <span style={{ fontSize: 11, fontFamily: "monospace" }}>{order.razorpayPaymentId}</span>
+                </div>
+              )}
               {order.paymentReference && (
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 12, color: "var(--a-text-muted)" }}>Reference</span>
@@ -416,6 +436,42 @@ export default function AdminOrderDetailPage() {
               </div>
             </div>
           </Section>
+
+          {/* Documents */}
+          <div className="a-card">
+            <div className="a-card-header">
+              <h2 className="a-card-title">Documents</h2>
+            </div>
+            <div className="a-card-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={() => downloadReceiptPdf(order)}
+                className="a-btn a-btn-ghost a-btn-sm"
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                <Download style={{ width: 14, height: 14 }} /> Download Receipt
+              </button>
+              <button
+                onClick={() => settings && printShippingLabel(order, settings)}
+                disabled={!settings}
+                className="a-btn a-btn-primary a-btn-sm"
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                <Printer style={{ width: 14, height: 14 }} /> Print Label
+              </button>
+              <button
+                onClick={() => settings && downloadShippingLabel(order, settings)}
+                disabled={!settings}
+                className="a-btn a-btn-ghost a-btn-sm"
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                <Download style={{ width: 14, height: 14 }} /> Download Label
+              </button>
+              <p style={{ fontSize: 11, color: "var(--a-text-muted)", marginTop: 2 }}>
+                The shipping label contains delivery details only — no
+                pricing or payment information.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

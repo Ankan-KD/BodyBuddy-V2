@@ -10,13 +10,15 @@ import Link from "next/link";
 import {
   Users, Search, RefreshCw,
   ChevronLeft, ChevronRight,
-  ShoppingBag, TrendingUp, Mail, Phone,
+  ShoppingBag, TrendingUp, Mail, Phone, MapPin,
 } from "lucide-react";
 import {
   adminFetchCustomers,
   adminFetchOrders,
   AdminCustomer,
 } from "@/lib/storeAdminApi";
+import { adminFetchDeliveryProfile } from "@/lib/deliveryProfileApi";
+import type { DeliveryProfile } from "@/lib/deliveryProfileTypes";
 import { formatPriceINR } from "@/lib/cartContext";
 import type { StoreOrder } from "@/lib/orderTypes";
 
@@ -33,6 +35,7 @@ function CustomerDrawer({
 }) {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
+  const [deliveryProfile, setDeliveryProfile] = useState<DeliveryProfile | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -44,9 +47,11 @@ function CustomerDrawer({
       });
       setOrders(result.orders.filter((o) => o.customerEmail === customer.customerEmail));
       setLoadingOrders(false);
+      const profile = await adminFetchDeliveryProfile(customer.userId);
+      setDeliveryProfile(profile);
     }
     load();
-  }, [customer.customerEmail]);
+  }, [customer.customerEmail, customer.userId]);
 
   const STATUS_BADGE: Record<string, string> = {
     placed:     "a-badge-orange",
@@ -149,6 +154,26 @@ function CustomerDrawer({
             </div>
             <div style={{ fontSize: 11, color: "var(--a-text-muted)", marginTop: 2 }}>Total Spent</div>
           </div>
+        </div>
+
+        {/* Currently saved Store delivery profile (distinct from per-order snapshots below) */}
+        <div style={{ padding: "16px 24px", borderBottom: "1px solid var(--a-border)" }}>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: "var(--a-text)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <MapPin style={{ width: 13, height: 13, color: "var(--a-text-muted)" }} /> Saved Delivery Address
+          </h3>
+          {deliveryProfile ? (
+            <div style={{ fontSize: 12, color: "var(--a-text-2)", lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600 }}>{deliveryProfile.recipientName}</div>
+              <div>{deliveryProfile.line1}{deliveryProfile.line2 ? `, ${deliveryProfile.line2}` : ""}</div>
+              <div>{deliveryProfile.city}, {deliveryProfile.state} – {deliveryProfile.pincode}</div>
+              <div>{deliveryProfile.phone}</div>
+            </div>
+          ) : (
+            <p style={{ fontSize: 12, color: "var(--a-text-muted)" }}>No saved address on file.</p>
+          )}
+          <p style={{ fontSize: 10, color: "var(--a-text-muted)", marginTop: 6 }}>
+            This is the customer&apos;s current default address — historical orders below keep the address actually used at the time.
+          </p>
         </div>
 
         {/* Orders list */}
@@ -405,10 +430,18 @@ export default function AdminCustomersPage() {
                   {/* Last order */}
                   <td>
                     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <span style={{ fontSize: 12, color: "var(--a-text-muted)" }}>
+                      <span style={{ fontSize: 12, fontFamily: "monospace", color: "var(--a-text-2)" }}>
+                        {c.lastOrderNumber}
+                      </span>
+                      <span style={{ fontSize: 11, color: "var(--a-text-muted)" }}>
                         {new Date(c.lastOrderAt).toLocaleDateString("en-IN", {
                           day: "numeric", month: "short", year: "numeric",
                         })}
+                        {" · "}{formatPriceINR(c.lastOrderAmountPaise)}
+                        {" · "}
+                        <span style={{ color: c.lastPaymentStatus === "paid" ? "var(--a-success)" : c.lastPaymentStatus === "failed" ? "var(--a-error)" : "inherit" }}>
+                          {c.lastPaymentStatus}
+                        </span>
                       </span>
                     </div>
                   </td>

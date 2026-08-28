@@ -10,12 +10,13 @@ import {
 } from "lucide-react";
 import {
   adminCreateProduct, adminUpdateProduct, adminCreateVariant,
-  adminUpdateVariant, adminDeleteVariant, adminFetchAllCategories,
+  adminUpdateVariant, adminDeleteVariant,
   adminFetchAllBrands, adminCreateBrand, generateSlug,
 } from "@/lib/storeAdminApi";
-import type { StoreProduct, StoreCategory, StoreBrand } from "@/lib/storeTypes";
+import type { StoreProduct, StoreBrand } from "@/lib/storeTypes";
 import type { CatalogPrefill } from "@/lib/catalogTypes";
-import { fetchAllProductTypes } from "@/lib/catalogueAdminApi";
+import { fetchAllProductTypes, fetchAllProductGroups } from "@/lib/catalogueAdminApi";
+import type { ProductGroup } from "@/lib/catalogueAdminApi";
 import { adminUploadProductImage } from "@/lib/storeAdminApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -612,7 +613,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   const [slug, setSlug] = useState(product?.slug ?? pre?.slug ?? "");
   const [slugTouched, setSlugTouched] = useState(isEdit || !!pre?.slug);
   const [brandId, setBrandId] = useState(product?.brandId ?? "");
-  const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
+  const [productGroupId, setProductGroupId] = useState(product?.productGroupId ?? "");
   const [productType, setProductType] = useState(product?.productType ?? pre?.type ?? "");
   const [shortDescription, setShortDescription] = useState(product?.shortDescription ?? pre?.shortDescription ?? "");
   const [fullDescription, setFullDescription] = useState(product?.fullDescription ?? pre?.fullDescription ?? "");
@@ -667,7 +668,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   });
 
   // Meta
-  const [categories, setCategories] = useState<StoreCategory[]>([]);
+  const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
   const [brands, setBrands] = useState<StoreBrand[]>([]);
   const [existingTypes, setExistingTypes] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -678,12 +679,12 @@ export function ProductForm({ product, catalogPrefill }: Props) {
   const [activeSection, setActiveSection] = useState("basics");
 
   useEffect(() => {
-    adminFetchAllCategories().then(cats => {
-      setCategories(cats);
-      if (!isEdit && pre?.userCategory && !categoryId) {
+    fetchAllProductGroups().then(grps => {
+      setProductGroups(grps);
+      if (!isEdit && pre?.userCategory && !productGroupId) {
         const needle = pre.userCategory.toLowerCase();
-        const match = cats.find(c => c.name.toLowerCase() === needle || c.slug.toLowerCase() === needle);
-        if (match) setCategoryId(match.id);
+        const match = grps.find(g => g.name.toLowerCase() === needle || g.slug.toLowerCase() === needle);
+        if (match) setProductGroupId(match.id);
       }
     });
     adminFetchAllBrands().then(bds => {
@@ -736,7 +737,8 @@ export function ProductForm({ product, catalogPrefill }: Props) {
       name: name.trim(),
       slug: slug.trim() || generateSlug(name.trim()),
       brand_id: brandId || null,
-      category_id: categoryId || null,
+      category_id: null,
+      product_group_id: productGroupId || null,
       product_type: productType.trim(),
       catalog_source_id: catalogSourceId || null,
       short_description: shortDescription.trim(),
@@ -762,7 +764,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
     e.preventDefault();
     if (!name.trim()) { setError("Product name is required"); return; }
     if (!slug.trim()) { setError("URL slug is required"); return; }
-    if (published && !categoryId) { setError("Select a Product Group before publishing — customers browse by Product Group on the storefront."); return; }
+    if (published && !productGroupId) { setError("Select a Product Group before publishing — customers browse by Product Group on the storefront."); return; }
     if (variants.length === 0) { setError("At least one variant is required"); return; }
     if (variants.some(v => !v.sku.trim())) { setError("All variants must have a SKU"); return; }
     if (variants.some(v => v.pricePaise <= 0)) { setError("All variants must have a price greater than 0"); return; }
@@ -790,16 +792,20 @@ export function ProductForm({ product, catalogPrefill }: Props) {
 
     for (let i = 0; i < variants.length; i++) {
       const v = variants[i];
-      const payload = {
+      // For updates, omit images so existing variant images are preserved.
+      // For creates, pass empty array (images managed separately).
+      const basePayload = {
         product_id: productId, sku: v.sku.trim(), name: v.name.trim(),
         size_label: v.sizeLabel.trim(), flavour: v.flavour.trim(), color: v.color.trim(),
         price_paise: v.pricePaise, compare_price_paise: v.comparePricePaise,
         stock_quantity: v.stockQuantity, low_stock_threshold: v.lowStockThreshold,
-        images: [], availability: v.availability, is_default: v.isDefault, sort_order: i,
+        availability: v.availability, is_default: v.isDefault, sort_order: i,
       };
-      if (v.id) { await adminUpdateVariant(v.id, payload); }
-      else {
-        const { error: ve } = await adminCreateVariant(payload);
+      if (v.id) {
+        const { error: ve } = await adminUpdateVariant(v.id, basePayload);
+        if (ve) { setError(friendlyDbError(ve) ?? "Failed to update a variant"); setSaving(false); return; }
+      } else {
+        const { error: ve } = await adminCreateVariant({ ...basePayload, images: [] });
         if (ve) { setError(friendlyDbError(ve) ?? "Failed to save a variant"); setSaving(false); return; }
       }
     }
@@ -807,9 +813,6 @@ export function ProductForm({ product, catalogPrefill }: Props) {
     setSaving(false); setSuccess(true);
     setTimeout(() => router.push("/admin/products"), 800);
   }
-
-  const topCategories = categories.filter(c => !c.parentId);
-  const subCategories = categories.filter(c => c.parentId);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -958,16 +961,9 @@ export function ProductForm({ product, catalogPrefill }: Props) {
               </Field>
 
               <Field label={`Product group${published ? " *" : ""}`} hint="Required to publish">
-                <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="a-form-input">
+                <select value={productGroupId} onChange={e => setProductGroupId(e.target.value)} className="a-form-input">
                   <option value="">No product group</option>
-                  <optgroup label="Product Groups">
-                    {topCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </optgroup>
-                  {subCategories.length > 0 && (
-                    <optgroup label="Sub-Groups">
-                      {subCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </optgroup>
-                  )}
+                  {productGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                 </select>
               </Field>
             </div>

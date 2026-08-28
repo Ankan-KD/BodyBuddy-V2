@@ -243,6 +243,7 @@ interface ProductRow {
   rating_average: number;
   rating_count: number;
   sort_order: number;
+  product_group_id: string | null;
   is_featured: boolean;
   created_at: string;
   updated_at: string;
@@ -301,6 +302,7 @@ function rowToCartItem(row: CartRow): CartItem | null {
       sodiumPerServing: pr.sodium_per_serving != null ? Number(pr.sodium_per_serving) : null,
       sugarPerServing: pr.sugar_per_serving != null ? Number(pr.sugar_per_serving) : null,
     },
+    productGroupId: pr.product_group_id ?? null,
     published: pr.published,
     availability: pr.availability as StoreProduct["availability"],
     ratingAverage: Number(pr.rating_average),

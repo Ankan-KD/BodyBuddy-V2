@@ -74,7 +74,7 @@ function OfferFormModal({
 
   return (
     <div style={{ position:"fixed",inset:0,zIndex:60,background:"rgba(15,23,42,0.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
-      <div className="admin-shell" style={{ background:"var(--a-surface)",borderRadius:"var(--a-radius-lg)",border:"1px solid var(--a-border)",boxShadow:"var(--a-shadow-md)",width:"100%",maxWidth:600,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+      <div style={{ background:"var(--a-surface)",borderRadius:"var(--a-radius-lg)",border:"1px solid var(--a-border)",boxShadow:"var(--a-shadow-md)",width:"100%",maxWidth:600,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden" }}>
         
         <div style={{ padding:"16px 20px",borderBottom:"1px solid var(--a-border)",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
           <div style={{ fontWeight:700,fontSize:15 }}>{isEdit?"Edit Offer":"New Offer"}</div>
@@ -314,7 +314,7 @@ export default function AdminOffersPage() {
   const activeCount=offers.filter(o=>o.isActive&&isOfferCurrentlyValid(o)).length;
 
   return (
-    <div className="admin-shell" style={{minHeight:"100%",background:"var(--a-bg)"}}>
+    <div style={{minHeight:"100%",background:"var(--a-bg)"}}>
       {toast&&(
         <div style={{position:"fixed",top:16,right:16,zIndex:100,padding:"10px 16px",borderRadius:"var(--a-radius-md)",fontSize:13,fontWeight:500,background:toast.type==="success"?"var(--a-success-bg)":"var(--a-danger-bg)",color:toast.type==="success"?"var(--a-success-text)":"var(--a-danger-text)",border:`1px solid ${toast.type==="success"?"var(--a-success-border)":"var(--a-danger-border)"}`,boxShadow:"var(--a-shadow-md)"}}>
           {toast.msg}
@@ -335,7 +335,7 @@ export default function AdminOffersPage() {
 
       {deleteId&&(
         <div style={{position:"fixed",inset:0,zIndex:60,background:"rgba(15,23,42,0.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div className="admin-shell" style={{background:"var(--a-surface)",borderRadius:"var(--a-radius-lg)",border:"1px solid var(--a-border)",padding:24,maxWidth:400,width:"100%"}}>
+          <div style={{background:"var(--a-surface)",borderRadius:"var(--a-radius-lg)",border:"1px solid var(--a-border)",padding:24,maxWidth:400,width:"100%"}}>
             <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>Delete offer?</div>
             <p style={{fontSize:13,color:"var(--a-text-3)",marginBottom:20}}>This will permanently delete the offer. Customers currently using a promo code will lose access.</p>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useAdminAuth, AdminAuthProvider } from "@/lib/adminAuth";
+import { AdminThemeProvider, useAdminTheme } from "@/lib/adminTheme";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { Loader2, ShieldX } from "lucide-react";
@@ -44,6 +45,7 @@ function AdminAccessDenied() {
 function AdminShell({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const { isAdmin, adminLoading } = useAdminAuth();
+  const { theme } = useAdminTheme();
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -57,14 +59,25 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     }
   }, [authLoading, user, router, isLoginPage]);
 
-  if (isLoginPage) return <>{children}</>;
+  // Login page — still apply theme data-attribute so the toggle works there too
+  if (isLoginPage) {
+    return (
+      <div className="admin-shell" data-admin-theme={theme} style={{ minHeight: "100dvh" }}>
+        {children}
+      </div>
+    );
+  }
 
   if (authLoading || adminLoading) return <AdminSplash message="Loading admin console…" />;
   if (!user) return <AdminSplash message="Redirecting to login…" />;
   if (!isAdmin) return <AdminAccessDenied />;
 
   return (
-    <div className="admin-shell" style={{ display: "flex", minHeight: "100dvh", background: "var(--a-bg)" }}>
+    <div
+      className="admin-shell"
+      data-admin-theme={theme}
+      style={{ display: "flex", minHeight: "100dvh", background: "var(--a-bg)" }}
+    >
       <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
@@ -80,7 +93,9 @@ function AdminShell({ children }: { children: React.ReactNode }) {
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <AdminAuthProvider>
-      <AdminShell>{children}</AdminShell>
+      <AdminThemeProvider>
+        <AdminShell>{children}</AdminShell>
+      </AdminThemeProvider>
     </AdminAuthProvider>
   );
 }

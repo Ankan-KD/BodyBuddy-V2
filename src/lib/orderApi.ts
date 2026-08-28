@@ -9,8 +9,89 @@ import {
   OrderRow,
   orderFromRow,
   CreateOrderPayload,
+  DeliveryAddress,
 } from "./orderTypes";
 import { CartItem, calcTotals } from "./cartContext";
+
+// ── Razorpay checkout (server-verified) ────────────────────────────────────
+// The client never computes trusted pricing or marks an order paid — those
+// steps happen in src/app/api/store/checkout/*. These helpers just call
+// that API with the signed-in user's access token attached.
+
+export interface CheckoutCustomerPayload {
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  deliveryAddress: DeliveryAddress;
+  /** If set, save (create/update) this as the user's default delivery profile. */
+  saveProfile?: boolean;
+  notes?: string;
+}
+
+export interface CreatedCheckoutOrder {
+  orderId: string;
+  orderNumber: string;
+  amountPaise: number;
+  razorpayOrderId: string;
+  razorpayKeyId: string;
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!supabase) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/**
+ * Creates a store order (server-side, trusted pricing) and a matching
+ * Razorpay order, ready to open in Razorpay Checkout.
+ */
+export async function createCheckoutOrder(
+  payload: CheckoutCustomerPayload
+): Promise<CreatedCheckoutOrder> {
+  const res = await fetch("/api/store/checkout/create-order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body?.error ?? "Could not start checkout.");
+  return body as CreatedCheckoutOrder;
+}
+
+/** Verifies a completed Razorpay payment server-side and marks the order paid. */
+export async function verifyCheckoutPayment(opts: {
+  orderId: string;
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}): Promise<{ verified: boolean; order?: StoreOrder; error?: string }> {
+  const res = await fetch("/api/store/checkout/verify-payment", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(opts),
+  });
+  const body = await res.json();
+  if (!res.ok) return { verified: false, error: body?.error ?? "Verification failed." };
+  return body as { verified: boolean; order?: StoreOrder };
+}
+
+/** Marks an order's payment as failed/abandoned and releases held stock. */
+export async function markCheckoutOrderFailed(
+  orderId: string,
+  reason: string
+): Promise<void> {
+  try {
+    await fetch("/api/store/checkout/mark-failed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify({ orderId, reason }),
+    });
+  } catch {
+    // best-effort — nothing more the client can do
+  }
+}
 
 // ── Place Order ───────────────────────────────────────────────────────────
 

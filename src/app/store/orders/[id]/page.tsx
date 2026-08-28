@@ -17,6 +17,7 @@ import {
   Truck,
   Copy,
   Check,
+  Download,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { fetchOrderById } from "@/lib/orderApi";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/orderTypes";
 import { formatPriceINR } from "@/lib/cartContext";
 import { cn } from "@/lib/utils";
+import { downloadReceiptPdf } from "@/lib/receiptPdf";
 
 // ── Status progress tracker ───────────────────────────────────────────────
 
@@ -175,7 +177,7 @@ export default function OrderDetailPage() {
           <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold text-sm text-emerald-600 dark:text-emerald-300">
-              Order placed successfully!
+              Payment successful — order placed!
             </p>
             <p className="text-xs text-emerald-600/80 dark:text-emerald-300/80 mt-0.5">
               Thank you for shopping with BodyBuddy Store. We&apos;ll confirm
@@ -323,13 +325,27 @@ export default function OrderDetailPage() {
             {formatPriceINR(order.totalPaise)}
           </span>
         </div>
-        {order.paymentReference && (
+        {order.razorpayPaymentId && (
+          <div className="mt-2 flex items-center gap-1 text-xs text-[var(--text-muted)]">
+            <span>Payment ID: {order.razorpayPaymentId}</span>
+            <CopyButton text={order.razorpayPaymentId} />
+          </div>
+        )}
+        {order.paymentReference && !order.razorpayPaymentId && (
           <div className="mt-2 flex items-center gap-1 text-xs text-[var(--text-muted)]">
             <span>Ref: {order.paymentReference}</span>
             <CopyButton text={order.paymentReference} />
           </div>
         )}
       </div>
+
+      {/* ── Receipt ── */}
+      <button
+        onClick={() => downloadReceiptPdf(order)}
+        className="w-full flex items-center justify-center gap-2 text-sm font-semibold px-5 py-3.5 rounded-2xl border border-[var(--border)] glass-panel active:scale-95 transition-transform"
+      >
+        <Download className="w-4 h-4 text-amber-500" /> Download Receipt
+      </button>
 
       {/* ── Order number ── */}
       <div className="flex items-center justify-center gap-2 text-xs text-[var(--text-muted)]">

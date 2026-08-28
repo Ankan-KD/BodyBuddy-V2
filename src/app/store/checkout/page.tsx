@@ -1,12 +1,15 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-// BB Store — Phase 7: Checkout Page
-// Collects customer details, delivery address, and payment method,
-// then places the order by calling orderApi.placeOrder().
+// BB Store — Checkout Page (Razorpay)
+// Collects customer details + delivery address (auto-filled from the
+// user's saved Store delivery profile when available), then the single
+// "Pay & Place Order" action creates a server-verified order and opens
+// Razorpay Checkout. No payment-method picker — Razorpay itself presents
+// whichever methods are enabled on the account.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -14,20 +17,68 @@ import {
   User,
   Phone,
   Mail,
-  CreditCard,
   Package,
   ChevronRight,
   AlertCircle,
   CheckCircle2,
   Loader2,
-  Truck,
+  ShieldCheck,
+  BadgeCheck,
 } from "lucide-react";
 import { useCart, formatPriceINR } from "@/lib/cartContext";
 import { isVariantPurchasable } from "@/lib/storeTypes";
 import { useAuth } from "@/lib/auth";
-import { placeOrder } from "@/lib/orderApi";
-import { CreateOrderPayload, PaymentMethod } from "@/lib/orderTypes";
+import { createCheckoutOrder, verifyCheckoutPayment, markCheckoutOrderFailed } from "@/lib/orderApi";
+import { fetchMyDeliveryProfile, saveMyDeliveryProfile } from "@/lib/deliveryProfileApi";
 import { cn } from "@/lib/utils";
+
+// ── Razorpay Checkout.js typings (minimal, matches the tested module) ──────
+
+declare global {
+  interface Window {
+    Razorpay: new (options: RazorpayOptions) => {
+      open: () => void;
+      on: (event: "payment.failed", callback: (response: RazorpayFailure) => void) => void;
+    };
+  }
+}
+
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  handler: (response: RazorpaySuccess) => void;
+  modal: { ondismiss: () => void };
+  theme: { color: string };
+  prefill: { name: string; email: string; contact: string };
+}
+
+interface RazorpaySuccess {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}
+
+interface RazorpayFailure {
+  error: { description?: string; code?: string };
+}
+
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
 
 // ── Step indicator ────────────────────────────────────────────────────────
 
@@ -119,23 +170,6 @@ function Input({
   );
 }
 
-// ── Payment option ────────────────────────────────────────────────────────
-
-const PAYMENT_OPTIONS: { method: PaymentMethod; label: string; sub: string; icon: React.ElementType }[] = [
-  {
-    method: "cod",
-    label: "Cash on Delivery",
-    sub: "Pay when your order arrives",
-    icon: Truck,
-  },
-  {
-    method: "upi",
-    label: "UPI",
-    sub: "GPay, PhonePe, Paytm etc.",
-    icon: CreditCard,
-  },
-];
-
 // ── Main component ────────────────────────────────────────────────────────
 
 interface FormErrors {
@@ -151,7 +185,7 @@ interface FormErrors {
 export default function CheckoutPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { items, totals, loading, clearCart } = useCart();
+  const { items, totals, loading, refreshCart } = useCart();
   const [step, setStep] = useState(0);
   const [placing, setPlacing] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
@@ -167,20 +201,40 @@ export default function CheckoutPage() {
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [pincode, setPincode] = useState("");
+  const [instructions, setInstructions] = useState("");
 
-  // ── Payment ────────────────────────────────────────────────────────
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
+  // ── Saved delivery profile ────────────────────────────────────────
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [hasSavedProfile, setHasSavedProfile] = useState(false);
+  const [saveProfile, setSaveProfile] = useState(true);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   // ── Errors ─────────────────────────────────────────────────────────
   const [errors, setErrors] = useState<FormErrors>({});
 
-  // Pre-fill from user profile if available
+  // Pre-fill from user profile + saved Store delivery profile
   useEffect(() => {
-    if (user) {
-      const meta = user.user_metadata;
-      if (meta?.name && !name) setName(meta.name as string);
-      if (user.email && !email) setEmail(user.email);
-    }
+    if (!user) return;
+    const meta = user.user_metadata;
+    if (meta?.name && !name) setName(meta.name as string);
+    if (user.email && !email) setEmail(user.email);
+
+    fetchMyDeliveryProfile(user.id).then((profile) => {
+      if (profile) {
+        setProfileId(profile.id);
+        setHasSavedProfile(true);
+        setName((prev) => prev || profile.recipientName);
+        setPhone((prev) => prev || profile.phone);
+        setLine1(profile.line1);
+        setLine2(profile.line2);
+        setCity(profile.city);
+        setState(profile.state);
+        setPincode(profile.pincode);
+        setInstructions(profile.deliveryInstructions);
+      }
+      setProfileLoaded(true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   // Only checkout available, purchasable items
@@ -225,42 +279,111 @@ export default function CheckoutPage() {
     else if (step === 1 && validateStep1()) setStep(2);
   }
 
-  // ── Place order ────────────────────────────────────────────────────
+  // ── Pay & Place Order ──────────────────────────────────────────────
 
-  async function handlePlaceOrder() {
-    if (!user || !hasItems) return;
+  const cleanupFailedOrder = useCallback(async (orderId: string, reason: string) => {
+    await markCheckoutOrderFailed(orderId, reason);
+    await refreshCart();
+  }, [refreshCart]);
+
+  async function handlePayAndPlaceOrder() {
+    if (!user || !hasItems || placing) return;
     setPlacing(true);
     setOrderError(null);
 
-    const payload: CreateOrderPayload = {
-      customerName: name.trim(),
-      customerEmail: email.trim(),
-      customerPhone: phone.trim(),
-      deliveryAddress: {
-        line1: line1.trim(),
-        line2: line2.trim(),
-        city: city.trim(),
-        state: state.trim(),
-        pincode: pincode.trim(),
-        country: "India",
-      },
-      paymentMethod,
-    };
+    let createdOrderId: string | null = null;
 
     try {
-      const order = await placeOrder(user.id, availableItems, payload);
-      // Cart is cleared inside placeOrder
-      router.replace(`/store/orders/${order.id}?placed=1`);
+      // 1. Create the order + Razorpay order (server-side trusted pricing)
+      const created = await createCheckoutOrder({
+        customerName: name.trim(),
+        customerEmail: email.trim(),
+        customerPhone: phone.trim(),
+        deliveryAddress: {
+          line1: line1.trim(),
+          line2: line2.trim(),
+          city: city.trim(),
+          state: state.trim(),
+          pincode: pincode.trim(),
+          country: "India",
+        },
+      });
+      createdOrderId = created.orderId;
+
+      // Save/update the delivery profile in parallel (best-effort; never
+      // blocks or fails checkout).
+      if (saveProfile) {
+        saveMyDeliveryProfile(user.id, profileId, {
+          recipientName: name.trim(),
+          phone: phone.trim(),
+          line1: line1.trim(),
+          line2: line2.trim(),
+          city: city.trim(),
+          state: state.trim(),
+          pincode: pincode.trim(),
+          country: "India",
+          deliveryInstructions: instructions.trim(),
+        }).catch(() => {});
+      }
+
+      // 2. Load Razorpay Checkout
+      const ready = await loadRazorpayScript();
+      if (!ready) throw new Error("Could not load the payment window. Check your internet connection.");
+
+      if (!created.razorpayKeyId) throw new Error("Payment is not configured. Please contact support.");
+
+      // 3. Open Razorpay Checkout — it presents whichever methods (UPI,
+      //    cards, netbanking, wallets, ...) are enabled on the account.
+      const razorpay = new window.Razorpay({
+        key: created.razorpayKeyId,
+        amount: created.amountPaise,
+        currency: "INR",
+        order_id: created.razorpayOrderId,
+        name: "BB Store",
+        description: `Order ${created.orderNumber}`,
+        prefill: { name: name.trim(), email: email.trim(), contact: phone.trim() },
+        theme: { color: "#f5601f" },
+        modal: {
+          ondismiss: async () => {
+            setPlacing(false);
+            setOrderError("Checkout was closed before payment completed. Your order was not placed — please try again.");
+            if (createdOrderId) await cleanupFailedOrder(createdOrderId, "Checkout dismissed by customer.");
+          },
+        },
+        handler: async (payment) => {
+          const result = await verifyCheckoutPayment({
+            orderId: created.orderId,
+            razorpay_order_id: payment.razorpay_order_id,
+            razorpay_payment_id: payment.razorpay_payment_id,
+            razorpay_signature: payment.razorpay_signature,
+          });
+          if (result.verified) {
+            router.replace(`/store/orders/${created.orderId}?placed=1`);
+          } else {
+            setPlacing(false);
+            setOrderError(result.error ?? "We couldn't confirm your payment. Please contact support before retrying.");
+          }
+        },
+      });
+
+      razorpay.on("payment.failed", async (failure) => {
+        setPlacing(false);
+        setOrderError(failure.error?.description || "Payment failed. Please try again.");
+        if (createdOrderId) await cleanupFailedOrder(createdOrderId, failure.error?.description ?? "payment.failed");
+      });
+
+      razorpay.open();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       setOrderError(msg);
       setPlacing(false);
+      if (createdOrderId) await cleanupFailedOrder(createdOrderId, msg);
     }
   }
 
   // ── Loading / empty guard ──────────────────────────────────────────
 
-  if (loading) {
+  if (loading || !profileLoaded) {
     return (
       <div className="px-4 pt-4">
         <h1 className="font-display text-xl font-semibold mb-4">Checkout</h1>
@@ -363,9 +486,16 @@ export default function CheckoutPage() {
       {/* ── Step 1: Delivery Address ── */}
       {step === 1 && (
         <section className="space-y-4">
-          <h2 className="font-display text-base font-semibold flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-amber-500" /> Delivery Address
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-base font-semibold flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-amber-500" /> Delivery Address
+            </h2>
+            {hasSavedProfile && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                <BadgeCheck className="w-3.5 h-3.5" /> Using saved address
+              </span>
+            )}
+          </div>
 
           <div className="glass-panel border border-[var(--border)] rounded-2xl p-4 space-y-4">
             <Field label="Address Line 1" icon={MapPin} required error={errors.line1}>
@@ -422,6 +552,24 @@ export default function CheckoutPage() {
                 }}
               />
             </Field>
+
+            <Field label="Delivery Instructions (Optional)" icon={MapPin}>
+              <Input
+                placeholder="Leave at the door, call on arrival, etc."
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+              />
+            </Field>
+
+            <label className="flex items-center gap-2 text-xs text-[var(--text-muted)] pt-1">
+              <input
+                type="checkbox"
+                checked={saveProfile}
+                onChange={(e) => setSaveProfile(e.target.checked)}
+                className="rounded border-[var(--border)]"
+              />
+              Save this address for next time
+            </label>
           </div>
 
           <div className="flex gap-3">
@@ -441,7 +589,7 @@ export default function CheckoutPage() {
         </section>
       )}
 
-      {/* ── Step 2: Review & Place Order ── */}
+      {/* ── Step 2: Review & Pay ── */}
       {step === 2 && (
         <section className="space-y-4">
           {/* Customer summary */}
@@ -483,59 +631,6 @@ export default function CheckoutPage() {
               <br />
               India
             </p>
-          </div>
-
-          {/* Payment method */}
-          <div className="glass-panel border border-[var(--border)] rounded-2xl p-4">
-            <h3 className="font-semibold text-sm flex items-center gap-1.5 mb-3">
-              <CreditCard className="w-3.5 h-3.5 text-amber-500" /> Payment Method
-            </h3>
-            <div className="space-y-2">
-              {PAYMENT_OPTIONS.map((opt) => {
-                const Icon = opt.icon;
-                const selected = paymentMethod === opt.method;
-                return (
-                  <button
-                    key={opt.method}
-                    onClick={() => setPaymentMethod(opt.method)}
-                    className={cn(
-                      "w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-colors",
-                      selected
-                        ? "border-amber-500 bg-amber-500/8"
-                        : "border-[var(--border)] bg-[var(--bg-card)]"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                        selected ? "bg-amber-500/20" : "bg-[var(--border)]"
-                      )}
-                    >
-                      <Icon
-                        className={cn(
-                          "w-4 h-4",
-                          selected ? "text-amber-500" : "text-[var(--text-muted)]"
-                        )}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{opt.label}</p>
-                      <p className="text-[11px] text-[var(--text-muted)]">
-                        {opt.sub}
-                      </p>
-                    </div>
-                    <div
-                      className={cn(
-                        "w-4 h-4 rounded-full border-2 shrink-0 transition-colors",
-                        selected
-                          ? "border-amber-500 bg-amber-500"
-                          : "border-[var(--border)]"
-                      )}
-                    />
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           {/* Order items summary */}
@@ -618,6 +713,15 @@ export default function CheckoutPage() {
             </div>
           </div>
 
+          {/* Secure payment note (Razorpay presents the methods) */}
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-emerald-500/8 border border-emerald-500/20">
+            <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-emerald-700 dark:text-emerald-300">
+              You&apos;ll pay securely via Razorpay — UPI, cards, netbanking and
+              wallets are all supported at the payment step.
+            </p>
+          </div>
+
           {/* Unavailable items warning */}
           {unavailableCount > 0 && (
             <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
@@ -647,18 +751,18 @@ export default function CheckoutPage() {
               ← Back
             </button>
             <button
-              onClick={handlePlaceOrder}
+              onClick={handlePayAndPlaceOrder}
               disabled={placing}
               className="flex-[2] flex items-center justify-center gap-2 font-semibold rounded-2xl py-3.5 bg-amber-500 text-white shadow-soft active:scale-95 transition-transform disabled:opacity-70"
             >
               {placing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Placing Order…
+                  Processing…
                 </>
               ) : (
                 <>
-                  Place Order <ChevronRight className="w-4 h-4" />
+                  Pay &amp; Place Order <ChevronRight className="w-4 h-4" />
                 </>
               )}
             </button>

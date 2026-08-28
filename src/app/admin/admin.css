@@ -92,6 +92,244 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Dark mode overrides ─────────────────────────────────────────────── */
+/*
+  Applied by adding data-admin-theme="dark" to the .admin-shell element.
+  All variables below map onto the same --a-* names so every component
+  picks them up automatically without touching any page-level code.
+*/
+.admin-shell[data-admin-theme="dark"] {
+  /* Page surfaces */
+  --a-bg:             #0F1115;
+  --a-surface:        #181B21;
+  --a-surface-2:      #1D2128;
+  --a-surface-3:      #20242B;
+
+  /* Borders */
+  --a-border:         #2A3038;
+  --a-border-strong:  #343B45;
+
+  /* Text */
+  --a-text:           #F2F4F7;
+  --a-text-2:         #C9CED6;
+  --a-text-3:         #A7AFBB;
+  --a-text-4:         #737C89;
+  --a-text-muted:     #737C89;
+
+  /* Primary */
+  --a-primary:        #4F8CFF;
+  --a-primary-hover:  #3B82F6;
+  --a-primary-light:  #1E3A66;
+  --a-primary-mid:    #1E3A66;
+  --a-primary-muted:  rgba(79, 140, 255, 0.10);
+  --a-primary-text:   #93BBFF;
+  --a-accent:         #4F8CFF;
+
+  /* Sidebar */
+  --a-sidebar-bg:          #14171C;
+  --a-sidebar-active-bg:   #1E3A66;
+  --a-sidebar-active-text: #4F8CFF;
+  --a-sidebar-border:      #2A3038;
+
+  /* Header */
+  --a-header-bg:      #14171C;
+  --a-header-border:  #2A3038;
+  --a-header-text:    #F2F4F7;
+  --a-header-muted:   #737C89;
+  --a-header-hover:   #20242B;
+
+  /* Status — success */
+  --a-success:        #35C978;
+  --a-success-bg:     #173D2A;
+  --a-success-border: #286B45;
+  --a-success-text:   #6EDFA4;
+
+  /* Status — warning */
+  --a-warning:        #F5A623;
+  --a-warning-bg:     #453416;
+  --a-warning-border: #76551F;
+  --a-warning-text:   #F5C26B;
+
+  /* Status — danger */
+  --a-danger:         #F05252;
+  --a-danger-bg:      #451C20;
+  --a-danger-border:  #742B32;
+  --a-danger-text:    #F08080;
+
+  /* Status — orange */
+  --a-orange:         #F5A623;
+  --a-orange-bg:      #453416;
+  --a-orange-border:  #76551F;
+  --a-orange-text:    #F5C26B;
+
+  /* Neutral */
+  --a-neutral:        #A7AFBB;
+  --a-neutral-bg:     #1D2128;
+  --a-neutral-border: #2A3038;
+
+  /* Stat accents */
+  --a-stat-blue:      #4F8CFF;
+  --a-stat-green:     #35C978;
+  --a-stat-amber:     #F5A623;
+  --a-stat-red:       #F05252;
+
+  /* Shadows (darker environment, subtler shadows) */
+  --a-shadow-xs:  0 1px 2px rgba(0,0,0,0.30);
+  --a-shadow-sm:  0 1px 3px rgba(0,0,0,0.40), 0 1px 2px rgba(0,0,0,0.20);
+  --a-shadow:     0 4px 6px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.20);
+  --a-shadow-md:  0 8px 16px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.25);
+}
+
+/* Dark mode input + select background fix (browser defaults override CSS vars) */
+.admin-shell[data-admin-theme="dark"] .a-form-input,
+.admin-shell[data-admin-theme="dark"] .a-form-select,
+.admin-shell[data-admin-theme="dark"] .a-filter-select,
+.admin-shell[data-admin-theme="dark"] select,
+.admin-shell[data-admin-theme="dark"] textarea {
+  background: #111419;
+  color: #F2F4F7;
+  border-color: #2A3038;
+  color-scheme: dark;
+}
+
+.admin-shell[data-admin-theme="dark"] .a-form-input::placeholder,
+.admin-shell[data-admin-theme="dark"] .a-form-select::placeholder,
+.admin-shell[data-admin-theme="dark"] textarea::placeholder {
+  color: #737C89;
+}
+
+/* Dark mode table striping / alternating rows */
+.admin-shell[data-admin-theme="dark"] .a-table thead th {
+  background: #14171C;
+}
+
+/* Dark sidebar mobile overlay tint */
+.admin-shell[data-admin-theme="dark"] .a-sidebar-overlay {
+  background: rgba(0,0,0,0.65);
+}
+
+/* Dark mode scrollbar */
+.admin-shell[data-admin-theme="dark"] {
+  scrollbar-color: #343B45 #14171C;
+}
+
+/* ── Theme transition ────────────────────────────────────────────────── */
+/*
+  Smooth cross-fade when toggling. Only applied to properties that
+  change between themes to avoid hurting scroll/transform performance.
+*/
+.admin-shell,
+.admin-shell * {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 0.18s;
+  transition-timing-function: ease;
+}
+
+/* Disable transition on SVG icons (they don't need it and it looks odd) */
+.admin-shell svg {
+  transition: none;
+}
+
+/* ── Theme toggle button ─────────────────────────────────────────────── */
+.a-theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: var(--a-radius);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--a-text-3);
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+  margin-bottom: 2px;
+  font-family: inherit;
+}
+
+.a-theme-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--a-text-3);
+  transition: color 0.1s;
+}
+
+.a-theme-toggle:hover {
+  background: var(--a-surface-2);
+  color: var(--a-text-2);
+}
+
+.a-theme-toggle:hover svg {
+  color: var(--a-text-2);
+}
+
+/* The pill track + knob */
+.a-theme-track {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  border-radius: 99px;
+  background: var(--a-border-strong);
+  flex-shrink: 0;
+  transition: background 0.18s;
+  margin-left: auto;
+}
+
+.admin-shell[data-admin-theme="dark"] .a-theme-track {
+  background: var(--a-primary);
+}
+
+.a-theme-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s ease;
+}
+
+.admin-shell[data-admin-theme="dark"] .a-theme-knob {
+  transform: translateX(14px);
+}
+
+/* Login page theme toggle (top-right corner) */
+.a-login-theme-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--a-radius);
+  border: 1px solid var(--a-border);
+  background: var(--a-surface);
+  color: var(--a-text-3);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.a-login-theme-btn svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.a-login-theme-btn:hover {
+  background: var(--a-surface-2);
+  border-color: var(--a-border-strong);
+  color: var(--a-text);
+}
+
 /* ── Shell reset ─────────────────────────────────────────────────────── */
 .admin-shell {
   background: var(--a-bg);

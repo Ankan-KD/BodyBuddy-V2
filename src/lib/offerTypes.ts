@@ -67,6 +67,15 @@ export interface StoreSettings {
   storeAnnouncementActive: boolean;
   maintenanceMode: boolean;
   featuredCategoryIds: string[];
+  // Return/ship-from address used on admin-printed shipping labels.
+  returnBusinessName: string;
+  returnAddressLine1: string;
+  returnAddressLine2: string;
+  returnCity: string;
+  returnState: string;
+  returnPincode: string;
+  returnCountry: string;
+  returnPhone: string;
 }
 
 export function settingsFromRows(
@@ -86,6 +95,14 @@ export function settingsFromRows(
         return [];
       }
     })(),
+    returnBusinessName: map["return_business_name"] ?? "BB Store",
+    returnAddressLine1: map["return_address_line1"] ?? "",
+    returnAddressLine2: map["return_address_line2"] ?? "",
+    returnCity: map["return_city"] ?? "",
+    returnState: map["return_state"] ?? "",
+    returnPincode: map["return_pincode"] ?? "",
+    returnCountry: map["return_country"] ?? "India",
+    returnPhone: map["return_phone"] ?? "",
   };
 }
 

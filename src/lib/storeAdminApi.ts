@@ -38,6 +38,7 @@ import {
 export interface AdminFetchProductsOptions {
   search?: string;
   categoryId?: string;
+  productGroupId?: string;
   productType?: string;
   published?: boolean;
   availability?: string;
@@ -50,17 +51,20 @@ export async function adminFetchProducts(
 ): Promise<{ products: StoreProduct[]; total: number }> {
   if (!supabase) return { products: [], total: 0 };
 
-  const { search, categoryId, productType, published, availability, limit = 25, offset = 0 } = opts;
+  const { search, categoryId, productGroupId, productType, published, availability, limit = 25, offset = 0 } = opts;
 
   let query = supabase
     .from("store_products")
-    .select("*, store_brands(*), category:store_categories!category_id(*), store_product_variants(*)", { count: "exact" })
+    .select("*, store_brands(*), category:store_categories!category_id(*), product_group:product_groups!product_group_id(id,name,slug), store_product_variants(*)", { count: "exact" })
     .order("created_at", { ascending: false });
 
   if (search?.trim()) {
     query = query.ilike("name", `%${search.trim()}%`);
   }
-  if (categoryId) {
+  if (productGroupId) {
+    query = query.eq("product_group_id", productGroupId);
+  } else if (categoryId) {
+    // legacy fallback — keep working if caller still passes categoryId
     query = query.eq("category_id", categoryId);
   }
   if (productType) {
@@ -86,6 +90,7 @@ export async function adminFetchProducts(
     const product = productFromRow(row);
     if ((row as any).store_brands) product.brand = brandFromRow((row as any).store_brands as BrandRow);
     if ((row as any).category) product.category = categoryFromRow((row as any).category as CategoryRow);
+    if ((row as any).product_group) product.productGroup = (row as any).product_group;
     if ((row as any).store_product_variants) {
       product.variants = ((row as any).store_product_variants as VariantRow[])
         .map(variantFromRow)
@@ -102,7 +107,7 @@ export async function adminFetchProductById(id: string): Promise<StoreProduct | 
 
   const { data, error } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), category:store_categories!category_id(*)")
+    .select("*, store_brands(*), category:store_categories!category_id(*), product_group:product_groups!product_group_id(id,name,slug)")
     .eq("id", id)
     .single();
 
@@ -111,6 +116,7 @@ export async function adminFetchProductById(id: string): Promise<StoreProduct | 
   const product = productFromRow(data as ProductRow);
   if ((data as any).store_brands) product.brand = brandFromRow((data as any).store_brands);
   if ((data as any).category) product.category = categoryFromRow((data as any).category);
+  if ((data as any).product_group) product.productGroup = (data as any).product_group;
 
   // Fetch variants (admin sees all including discontinued)
   const { data: variantData } = await supabase
@@ -173,6 +179,7 @@ export interface ProductUpsertPayload {
   slug: string;
   brand_id: string | null;
   category_id: string | null;
+  product_group_id: string | null;
   product_type: string;
   catalog_source_id: string | null;
   short_description: string;
@@ -744,6 +751,14 @@ export async function adminSaveSettings(
     store_announcement_active: string;
     maintenance_mode: string;
     featured_category_ids: string;
+    return_business_name: string;
+    return_address_line1: string;
+    return_address_line2: string;
+    return_city: string;
+    return_state: string;
+    return_pincode: string;
+    return_country: string;
+    return_phone: string;
   }>
 ): Promise<string | null> {
   if (!supabase) return "No database connection";
@@ -785,6 +800,10 @@ export interface AdminCustomer {
   totalSpentPaise: number;
   lastOrderAt: string;
   lastOrderStatus: string;
+  lastOrderId: string;
+  lastOrderNumber: string;
+  lastOrderAmountPaise: number;
+  lastPaymentStatus: string;
 }
 
 export interface AdminFetchCustomersOptions {
@@ -803,7 +822,7 @@ export async function adminFetchCustomers(
   // Fetch all non-cancelled orders to aggregate by customer
   let query = supabase
     .from("store_orders")
-    .select("user_id, customer_name, customer_email, customer_phone, total_paise, status, created_at")
+    .select("id, order_number, user_id, customer_name, customer_email, customer_phone, total_paise, status, payment_status, created_at")
     .order("created_at", { ascending: false });
 
   if (search?.trim()) {
@@ -833,6 +852,10 @@ export async function adminFetchCustomers(
         totalSpentPaise: 0,
         lastOrderAt: row.created_at,
         lastOrderStatus: row.status,
+        lastOrderId: row.id,
+        lastOrderNumber: row.order_number,
+        lastOrderAmountPaise: Number(row.total_paise),
+        lastPaymentStatus: row.payment_status,
       });
     }
     const c = map.get(uid)!;

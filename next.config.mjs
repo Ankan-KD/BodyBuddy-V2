@@ -2,6 +2,13 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "**" },
+      { protocol: "http",  hostname: "**" },
+    ],
+  },
+
   // Turbopack config — handles *.csv imports via raw-loader so the catalog
   // CSV is bundled into the JS at build time (not served from /public).
   turbopack: {

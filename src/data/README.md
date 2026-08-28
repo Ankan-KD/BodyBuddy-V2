@@ -1,3 +1,5 @@
+CURRENTLY THE FILES ARE NOT ATACHHED IN THE ZIP DUE TO SIZE ISSUES , IT WILL BE ADDED LATER ON AFTER UNZIPPING AND TESTING IN LOCAL SYSTEMS
+
 # Master Food Database
 
 - `master-food-database.source.csv` — the source-of-truth reference dataset
