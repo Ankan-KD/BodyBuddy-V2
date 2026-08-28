@@ -104,7 +104,7 @@ export default function OnboardingPage() {
         });
       });
     }
-    router.replace("/");
+    router.replace("/dashboard");
   }
 
   const progress = ((step + 1) / 5) * 100;

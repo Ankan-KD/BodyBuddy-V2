@@ -22,7 +22,7 @@ export default function StoreNotFound() {
           Back to Store
         </Link>
         <Link
-          href="/"
+          href="/dashboard"
           className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--border)] text-sm font-medium text-[var(--text-muted)] active:scale-95 transition-transform"
         >
           <Home className="w-4 h-4" />

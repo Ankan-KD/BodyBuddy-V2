@@ -25,7 +25,11 @@ function Gate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [logOpen, setLogOpen] = useState(false);
   const isLogin = pathname === "/login";
-  const isPublicMarketing = pathname === "/landing";
+  // "/" is the root URL and must always represent the public landing page
+  // (it renders the same component as /landing — see src/app/page.tsx).
+  // It must never directly render the user dashboard, which lives at its
+  // own route, /dashboard.
+  const isPublicMarketing = pathname === "/" || pathname === "/landing";
   const isStore = pathname.startsWith("/store");
   const isAdmin = pathname.startsWith("/admin");
   const isPublic = isLogin || isPublicMarketing;
@@ -38,7 +42,9 @@ function Gate({ children }: { children: React.ReactNode }) {
     // returning user with the link bookmarked).
     // Store and Admin routes handle their own auth gates.
     if (!user && !isPublic && !isStore && !isAdmin) router.replace("/landing");
-    if (user && isPublic) router.replace("/");
+    // Signed-in users never linger on a public route (including "/") —
+    // send them on to their dashboard instead.
+    if (user && isPublic) router.replace("/dashboard");
   }, [loading, user, isPublic, isStore, isAdmin, router]);
 
   if (loading) return <Splash />;

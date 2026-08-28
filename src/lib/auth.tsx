@@ -55,13 +55,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signInWithGoogle() {
     if (!supabase) return { error: "Supabase isn't configured yet." };
-    // Redirect back to the app root after Google OAuth completes.
-    // The Gate component in AppShell handles routing from there:
+    // Redirect back to the app root ("/") after Google OAuth completes.
+    // "/" is the public landing route, so the Gate component in AppShell
+    // immediately forwards a newly-signed-in user onward from there:
     //   • New users (no onboarding data) → /onboarding
-    //   • Returning users → / (dashboard)
+    //   • Returning users → /dashboard
     // Using window.location.origin ensures no stale /login path is kept,
     // which would cause a redirect loop since signed-in users are bounced
-    // away from /login.
+    // away from /login. Keeping the redirect target as "/" (rather than
+    // "/dashboard" directly) avoids needing to add another allowed redirect
+    // URL in the Supabase Auth provider settings.
     const redirectTo =
       typeof window !== "undefined" ? window.location.origin + "/" : undefined;
     const { error } = await supabase.auth.signInWithOAuth({

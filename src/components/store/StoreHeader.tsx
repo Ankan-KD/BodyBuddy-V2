@@ -68,7 +68,7 @@ export function StoreHeader() {
           {/* Back to BB Health */}
           {isHome && (
             <Link
-              href="/"
+              href="/dashboard"
               className="text-xs font-medium px-3 py-1.5 rounded-full border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors mr-1"
             >
               ← BB Health

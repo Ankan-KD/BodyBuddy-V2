@@ -35,7 +35,7 @@ function AdminAccessDenied() {
           You don&apos;t have administrator access. Contact the site owner if this is a mistake.
         </p>
       </div>
-      <a href="/" style={{ fontSize: 13, color: "var(--a-primary)", textDecoration: "none", fontWeight: 500 }}>
+      <a href="/dashboard" style={{ fontSize: 13, color: "var(--a-primary)", textDecoration: "none", fontWeight: 500 }}>
         ← Back to BB Health
       </a>
     </div>
@@ -76,11 +76,17 @@ function AdminShell({ children }: { children: React.ReactNode }) {
     <div
       className="admin-shell"
       data-admin-theme={theme}
-      style={{ display: "flex", minHeight: "100dvh", background: "var(--a-bg)" }}
+      // Fixed to the viewport height (not just a minimum) and clipped, so the
+      // sidebar and header stay pinned in place while <main> (the only
+      // scrollable region below) scrolls independently. Using minHeight here
+      // let this container grow past 100dvh with tall page content, which
+      // pushed the whole shell into document scroll and dragged the sidebar
+      // off-screen along with it.
+      style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--a-bg)" }}
     >
       <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100%", overflow: "hidden" }}>
         <AdminHeader onMenuClick={() => setSidebarOpen(true)} />
         <main className="a-main">
           {children}

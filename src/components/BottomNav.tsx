@@ -6,7 +6,7 @@ import { LayoutGrid, Apple, Scale, History, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/", label: "Today", icon: LayoutGrid },
+  { href: "/dashboard", label: "Today", icon: LayoutGrid },
   { href: "/foods", label: "Foods", icon: Apple },
   { href: "__log__", label: "Log", icon: Sparkles },
   { href: "/weight", label: "Weight", icon: Scale },

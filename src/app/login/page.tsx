@@ -252,7 +252,7 @@ export default function LoginPage() {
     if (mode === "signup") {
       setNotice("Account created. If email confirmation is required, check your inbox — otherwise you're in!");
     }
-    router.replace("/");
+    router.replace("/dashboard");
   }
 
   async function google() {
