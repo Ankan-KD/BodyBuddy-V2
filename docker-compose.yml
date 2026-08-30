@@ -1,0 +1,43 @@
+# ════════════════════════════════════════════════════════════════════════
+# BodyBuddy — Docker Compose
+#
+# BodyBuddy's database, auth, and file storage all live in Supabase (a
+# managed/cloud or self-hosted Postgres + Auth service reached over the
+# network) — this compose file does NOT bundle Postgres itself. It simply
+# runs the Next.js app in a container, wired up with your environment
+# file, health-checked, and ready to sit behind any reverse proxy.
+#
+# Quick start:
+#   1. cp .env.docker.example .env.local   # then fill in real values
+#   2. docker compose up --build
+#   3. open http://localhost:3000
+# ════════════════════════════════════════════════════════════════════════
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Baked into the client bundle at build time — safe to be public.
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_RAZORPAY_KEY_ID: ${NEXT_PUBLIC_RAZORPAY_KEY_ID}
+    image: bodybuddy:latest
+    container_name: bodybuddy
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    env_file:
+      # Holds every variable in .env.docker.example, including server-only
+      # secrets — these are only ever injected at container runtime, never
+      # baked into the image.
+      - .env.local
+    environment:
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok||r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

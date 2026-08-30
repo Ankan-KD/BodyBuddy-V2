@@ -55,5 +55,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
   }
 
+  // This IS a real, user-chosen password (proven via the OTP ticket above) —
+  // record it the same way /set-password does, so check-password reports
+  // hasPassword correctly. See supabase/016_password_set_flag.sql for why
+  // this can't be inferred from auth.users.encrypted_password alone.
+  const { error: markErr } = await supabaseAdmin.rpc("mark_password_set", {
+    p_user_id: ticketResult.userId,
+  });
+  if (markErr) {
+    console.error("[password/reset] mark_password_set failed:", markErr.message);
+    // Non-fatal — the password itself was updated successfully above.
+  }
+
   return NextResponse.json({ success: true });
 }

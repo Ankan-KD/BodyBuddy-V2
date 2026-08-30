@@ -5,16 +5,24 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
  * POST /api/otp/check-password
  * Authorization: Bearer <access_token>
  *
- * Returns { hasPassword: boolean }, determined entirely server-side via the
- * public.user_has_password(uuid) Postgres function, which inspects
- * auth.users.encrypted_password directly (SECURITY DEFINER, execute
- * restricted to the service role — see supabase/013_password_otp_secure.sql).
+ * Returns { hasPassword: boolean, pendingEmailVerify: boolean }.
  *
- * This is the one reliable signal: it doesn't infer password existence
- * from app_metadata.provider or identities, both of which can be
- * misleading (e.g. Supabase may attach an "email" identity to an
- * OAuth-only account). encrypted_password itself is never returned to the
- * client — only the boolean.
+ * hasPassword        — from user_settings.password_set (see
+ *                      supabase/016_password_set_flag.sql). This is
+ *                      explicitly recorded by /api/password/mark-set right
+ *                      after the user completes /set-password.
+ *                      NOT derived from auth.users.encrypted_password:
+ *                      manual signup (src/lib/auth.tsx signUpWithEmail)
+ *                      writes a random temp password there at account
+ *                      creation just to satisfy signUp()'s API, so that
+ *                      column is non-null from the very start and can't
+ *                      distinguish "chose a real password" from "we
+ *                      generated junk internally."
+ * pendingEmailVerify — from user_settings.pending_email_verify; true only for
+ *                      manual-signup accounts that haven't yet completed OTP
+ *                      email verification. Google accounts are never pending.
+ *
+ * Neither raw password hash nor OTP code is ever returned to the client.
  */
 export async function POST(req: NextRequest) {
   if (!supabaseAdmin) {
@@ -29,15 +37,29 @@ export async function POST(req: NextRequest) {
 
   const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
   if (userErr || !userData?.user) {
+    // Log the real reason — this was previously swallowed, which made a
+    // failing token/session impossible to diagnose from the server side.
+    console.error("[check-password] getUser failed:", userErr?.message ?? "no user returned");
     return NextResponse.json({ error: "Invalid token." }, { status: 401 });
   }
 
-  const { data: hasPassword, error: rpcErr } = await supabaseAdmin.rpc("user_has_password", {
-    p_user_id: userData.user.id,
-  });
-  if (rpcErr) {
+  const userId = userData.user.id;
+
+  const { data: settings, error: settingsErr } = await supabaseAdmin
+    .from("user_settings")
+    .select("pending_email_verify, password_set")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (settingsErr) {
+    console.error("[check-password] user_settings lookup failed:", settingsErr.message);
     return NextResponse.json({ error: "Failed to check password state." }, { status: 500 });
   }
 
-  return NextResponse.json({ hasPassword: Boolean(hasPassword) });
+  // No user_settings row yet (trigger hasn't fired) → definitely no
+  // password set yet and definitely not mid-OTP-verification.
+  const hasPassword = Boolean(settings?.password_set);
+  const pendingEmailVerify = Boolean(settings?.pending_email_verify);
+
+  return NextResponse.json({ hasPassword, pendingEmailVerify });
 }

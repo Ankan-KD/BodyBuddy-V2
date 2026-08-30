@@ -1,0 +1,37 @@
+# ════════════════════════════════════════════════════════════════════════
+# Keeps the Docker build context small and prevents local secrets / build
+# artifacts from ever being baked into an image layer.
+# ════════════════════════════════════════════════════════════════════════
+
+node_modules
+npm-debug.log*
+
+# Next.js build output (regenerated inside the image)
+.next
+out
+
+# Env files — never bake secrets into an image; pass them at `docker run`
+# time via --env-file instead (see .env.docker.example)
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+
+# Docs & misc project files not needed to build the app
+README.md
+*.md
+supabase
+scripts
+
+# Docker files themselves (no need to COPY them into the image)
+Dockerfile
+docker-compose.yml
+.dockerignore

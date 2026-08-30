@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShoppingCart, ArrowLeft, UserCircle } from "lucide-react";
+import { ShoppingCart, ArrowLeft, UserCircle, Heart } from "lucide-react";
 import { useCart } from "@/lib/cartContext";
+import { useWishlist } from "@/lib/wishlistContext";
 
 const ROUTE_TITLES: Record<string, string> = {
   "/store": "BB Store",
@@ -16,11 +17,13 @@ const ROUTE_TITLES: Record<string, string> = {
   "/store/goals": "Shop by Goal",
   "/store/deals": "Deals",
   "/store/profile": "My Profile",
+  "/store/wishlist": "My Wishlist",
 };
 
 export function StoreHeader() {
   const pathname = usePathname();
   const { totals } = useCart();
+  const { items: wishlistItems } = useWishlist();
 
   // Dynamic nested routes (category detail, product detail, goal detail)
   let title = ROUTE_TITLES[pathname];
@@ -81,6 +84,19 @@ export function StoreHeader() {
             className="h-9 w-9 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-amber-500/10 transition-colors"
           >
             <UserCircle className="w-5 h-5" />
+          </Link>
+          {/* Wishlist icon with live badge */}
+          <Link
+            href="/store/wishlist"
+            aria-label={`Wishlist${wishlistItems.length > 0 ? `, ${wishlistItems.length} items` : ""}`}
+            className="relative h-9 w-9 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-amber-500/10 transition-colors"
+          >
+            <Heart className="w-5 h-5" />
+            {wishlistItems.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center px-1 leading-none">
+                {wishlistItems.length > 99 ? "99+" : wishlistItems.length}
+              </span>
+            )}
           </Link>
           {/* Cart icon with live badge */}
           <Link

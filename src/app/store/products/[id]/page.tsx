@@ -14,7 +14,7 @@ import {
   stockLabel,
   StoreProductVariant,
 } from "@/lib/storeTypes";
-import { AddToCartButton } from "@/components/store/ProductCard";
+import { AddToCartButton, WishlistHeartButton } from "@/components/store/ProductCard";
 import { usePersonalization } from "@/lib/usePersonalization";
 import { cn } from "@/lib/utils";
 
@@ -99,6 +99,9 @@ export default function ProductDetailPage() {
             -{discount}%
           </span>
         )}
+        <div className="absolute top-3 left-3">
+          {product && <WishlistHeartButton product={product} size="lg" />}
+        </div>
       </div>
 
       <div className="px-4 space-y-4">

@@ -24,12 +24,15 @@ import {
   Loader2,
   ShieldCheck,
   BadgeCheck,
+  Plus,
+  Tag,
 } from "lucide-react";
 import { useCart, formatPriceINR } from "@/lib/cartContext";
 import { isVariantPurchasable } from "@/lib/storeTypes";
 import { useAuth } from "@/lib/auth";
 import { createCheckoutOrder, verifyCheckoutPayment, markCheckoutOrderFailed } from "@/lib/orderApi";
-import { fetchMyDeliveryProfile, saveMyDeliveryProfile } from "@/lib/deliveryProfileApi";
+import { listMyDeliveryProfiles, saveMyDeliveryProfile } from "@/lib/deliveryProfileApi";
+import { DeliveryProfile } from "@/lib/deliveryProfileTypes";
 import { cn } from "@/lib/utils";
 
 // ── Razorpay Checkout.js typings (minimal, matches the tested module) ──────
@@ -203,34 +206,54 @@ export default function CheckoutPage() {
   const [pincode, setPincode] = useState("");
   const [instructions, setInstructions] = useState("");
 
-  // ── Saved delivery profile ────────────────────────────────────────
+  // ── Saved delivery addresses ──────────────────────────────────────
+  const [savedProfiles, setSavedProfiles] = useState<DeliveryProfile[]>([]);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [hasSavedProfile, setHasSavedProfile] = useState(false);
   const [saveProfile, setSaveProfile] = useState(true);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [addressLabel, setAddressLabel] = useState("Home");
 
   // ── Errors ─────────────────────────────────────────────────────────
   const [errors, setErrors] = useState<FormErrors>({});
 
-  // Pre-fill from user profile + saved Store delivery profile
+  function applyProfile(profile: DeliveryProfile) {
+    setProfileId(profile.id);
+    setAddressLabel(profile.label);
+    setName((prev) => prev || profile.recipientName);
+    setPhone(profile.phone);
+    setLine1(profile.line1);
+    setLine2(profile.line2);
+    setCity(profile.city);
+    setState(profile.state);
+    setPincode(profile.pincode);
+    setInstructions(profile.deliveryInstructions);
+  }
+
+  function startNewAddress() {
+    setProfileId(null);
+    setAddressLabel("Home");
+    setLine1("");
+    setLine2("");
+    setCity("");
+    setState("");
+    setPincode("");
+    setInstructions("");
+  }
+
+  // Pre-fill from user profile + saved Store delivery addresses
   useEffect(() => {
     if (!user) return;
     const meta = user.user_metadata;
     if (meta?.name && !name) setName(meta.name as string);
     if (user.email && !email) setEmail(user.email);
 
-    fetchMyDeliveryProfile(user.id).then((profile) => {
-      if (profile) {
-        setProfileId(profile.id);
+    listMyDeliveryProfiles(user.id).then((profiles) => {
+      setSavedProfiles(profiles);
+      const defaultProfile = profiles.find((p) => p.isDefault) ?? profiles[0] ?? null;
+      if (defaultProfile) {
         setHasSavedProfile(true);
-        setName((prev) => prev || profile.recipientName);
-        setPhone((prev) => prev || profile.phone);
-        setLine1(profile.line1);
-        setLine2(profile.line2);
-        setCity(profile.city);
-        setState(profile.state);
-        setPincode(profile.pincode);
-        setInstructions(profile.deliveryInstructions);
+        applyProfile(defaultProfile);
       }
       setProfileLoaded(true);
     });
@@ -314,6 +337,7 @@ export default function CheckoutPage() {
       // blocks or fails checkout).
       if (saveProfile) {
         saveMyDeliveryProfile(user.id, profileId, {
+          label: addressLabel.trim() || "Home",
           recipientName: name.trim(),
           phone: phone.trim(),
           line1: line1.trim(),
@@ -497,7 +521,63 @@ export default function CheckoutPage() {
             )}
           </div>
 
+          {/* Saved address picker — only shown when the user has more than
+              one saved address; a single saved address is already applied
+              automatically above. */}
+          {savedProfiles.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[var(--text-muted)]">
+                Choose a saved address, or enter a new one below
+              </p>
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                {savedProfiles.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => applyProfile(p)}
+                    className={cn(
+                      "shrink-0 text-left rounded-xl border px-3 py-2 min-w-[140px] transition-colors",
+                      profileId === p.id
+                        ? "border-amber-500 bg-amber-500/10"
+                        : "border-[var(--border)] glass-panel"
+                    )}
+                  >
+                    <span className="flex items-center gap-1 text-[11px] font-bold text-amber-600 dark:text-amber-300">
+                      <Tag className="w-3 h-3" /> {p.label}
+                    </span>
+                    <span className="block text-[11px] text-[var(--text-muted)] mt-0.5 line-clamp-1">
+                      {p.recipientName}
+                    </span>
+                    <span className="block text-[11px] text-[var(--text-muted)] line-clamp-1">
+                      {p.line1}, {p.city}
+                    </span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={startNewAddress}
+                  className={cn(
+                    "shrink-0 flex flex-col items-center justify-center gap-1 text-[11px] font-semibold rounded-xl border px-4 py-2 min-w-[100px] transition-colors",
+                    profileId === null
+                      ? "border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-300"
+                      : "border-dashed border-[var(--border)] text-[var(--text-muted)]"
+                  )}
+                >
+                  <Plus className="w-4 h-4" /> New address
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="glass-panel border border-[var(--border)] rounded-2xl p-4 space-y-4">
+            <Field label="Address Label" icon={Tag}>
+              <Input
+                placeholder="Home, Work, ..."
+                value={addressLabel}
+                onChange={(e) => setAddressLabel(e.target.value)}
+              />
+            </Field>
+
             <Field label="Address Line 1" icon={MapPin} required error={errors.line1}>
               <Input
                 placeholder="Flat / House no., Building, Street"

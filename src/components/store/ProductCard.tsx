@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Star, ShoppingCart, Package, Plus, Minus, Check } from "lucide-react";
+import { Star, ShoppingCart, Package, Plus, Minus, Check, Heart } from "lucide-react";
 import { useState, useCallback } from "react";
 import {
   StoreProduct,
@@ -14,6 +14,7 @@ import {
   isVariantPurchasable,
 } from "@/lib/storeTypes";
 import { useCart } from "@/lib/cartContext";
+import { useWishlist } from "@/lib/wishlistContext";
 import { cn } from "@/lib/utils";
 
 // ── Skeleton ──────────────────────────────────────────────────────────────
@@ -40,6 +41,53 @@ export function ProductsEmpty({ message = "No products found." }: { message?: st
       <Package className="w-10 h-10 text-[var(--text-muted)] opacity-30 mb-3" />
       <p className="text-sm text-[var(--text-muted)]">{message}</p>
     </div>
+  );
+}
+
+// ── WishlistHeartButton ───────────────────────────────────────────────────
+
+export function WishlistHeartButton({
+  product,
+  className,
+  size = "sm",
+}: {
+  product: StoreProduct;
+  className?: string;
+  size?: "sm" | "lg";
+}) {
+  const { isWishlisted, toggleWishlist, updatingIds } = useWishlist();
+  const wishlisted = isWishlisted(product.id);
+  const isUpdating = updatingIds.has(product.id);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleWishlist(product);
+    },
+    [toggleWishlist, product]
+  );
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={isUpdating}
+      aria-label={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
+      aria-pressed={wishlisted}
+      className={cn(
+        "flex items-center justify-center rounded-full transition-all active:scale-90 backdrop-blur-sm",
+        size === "sm" ? "w-7 h-7" : "w-11 h-11",
+        wishlisted
+          ? "bg-rose-500/15 text-rose-500"
+          : "bg-black/10 dark:bg-white/10 text-white dark:text-white hover:bg-black/20",
+        isUpdating && "opacity-60",
+        className
+      )}
+    >
+      <Heart
+        className={cn(size === "sm" ? "w-3.5 h-3.5" : "w-5 h-5", wishlisted && "fill-current")}
+      />
+    </button>
   );
 }
 
@@ -75,10 +123,14 @@ export function ProductCard({ product, href }: ProductCardProps) {
   return (
     <div
       className={cn(
-        "glass-panel rounded-2xl border border-[var(--border)] shadow-soft overflow-hidden flex flex-col",
+        "relative glass-panel rounded-2xl border border-[var(--border)] shadow-soft overflow-hidden flex flex-col",
         !available && "opacity-60"
       )}
     >
+      {/* Wishlist toggle — sibling of the Link (not nested inside the <a>),
+          absolutely positioned over the bottom-right of the image. */}
+      <WishlistHeartButton product={product} className="absolute z-10 top-[108px] right-2" />
+
       <Link href={link} className="block">
         {/* Image */}
         <div className="relative h-36 bg-gradient-to-br from-amber-500/10 to-nova-500/10 flex items-center justify-center">

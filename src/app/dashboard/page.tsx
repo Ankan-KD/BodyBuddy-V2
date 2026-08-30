@@ -19,7 +19,7 @@ import { computeCombinedTotals, foodProgress } from "@/lib/nutrition";
 import { useStore } from "@/lib/store";
 import { FoodCategory, FoodTemplate } from "@/lib/types";
 import { cn, isFoodScheduledOn, relativeDayLabel } from "@/lib/utils";
-import { Beef, Droplets, Flame, PieChart, Plus, Settings, Wheat, ShoppingBag, ChevronRight } from "lucide-react";
+import { Beef, Droplets, Flame, Loader2, PieChart, Plus, Settings, Wheat, ShoppingBag, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -220,7 +220,19 @@ export default function DashboardPage() {
   const status = progressStatus(settings.goalMode, totals.calories, settings.calorieGoal);
   const statusLabel = progressStatusLabel(status);
 
-  if (!ready || !settings.onboarded) return null;
+  // While the store is still loading, or we're about to bounce to
+  // /onboarding (see the effect above), show a small loading indicator
+  // instead of a blank white screen — a brand-new user's data fetch (and
+  // the resulting onboarding check) can take a moment, and a silent blank
+  // page reads as a stuck/broken app rather than "still loading".
+  if (!ready || !settings.onboarded) {
+    return (
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-3">
+        <AppIcon className="h-14 w-14 rounded-2xl shadow-glow-nova animate-pulse-glow" />
+        <Loader2 className="w-5 h-5 text-nova-400 animate-spin" />
+      </div>
+    );
+  }
 
   const greeting = settings.name ? `Hi, ${settings.name.split(" ")[0]}` : "Welcome back";
 

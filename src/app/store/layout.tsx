@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { StoreNav } from "@/components/store/StoreNav";
 import { StoreHeader } from "@/components/store/StoreHeader";
 import { CartProvider } from "@/lib/cartContext";
+import { WishlistProvider } from "@/lib/wishlistContext";
 import { Loader2, Megaphone } from "lucide-react";
 import { AppIcon } from "@/components/AppIcon";
 import { useStoreSettings } from "@/lib/useStoreData";
@@ -59,12 +60,14 @@ export default function StoreLayout({ children }: { children: React.ReactNode })
   return (
     <StoreProvider>
       <CartProvider>
-        <div className="mx-auto max-w-md min-h-dvh flex flex-col store-theme">
-          <AnnouncementBanner />
-          <StoreHeader />
-          <main className="flex-1 pb-24">{children}</main>
-          <StoreNav />
-        </div>
+        <WishlistProvider>
+          <div className="mx-auto max-w-md min-h-dvh flex flex-col store-theme">
+            <AnnouncementBanner />
+            <StoreHeader />
+            <main className="flex-1 pb-24">{children}</main>
+            <StoreNav />
+          </div>
+        </WishlistProvider>
       </CartProvider>
     </StoreProvider>
   );

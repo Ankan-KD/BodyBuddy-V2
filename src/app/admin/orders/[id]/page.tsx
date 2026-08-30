@@ -35,6 +35,7 @@ import type { StoreSettings } from "@/lib/offerTypes";
 import { formatPriceINR } from "@/lib/cartContext";
 import { cn } from "@/lib/utils";
 import { downloadReceiptPdf } from "@/lib/receiptPdf";
+import { downloadAdminReceiptPdf } from "@/lib/adminReceiptPdf";
 import { printShippingLabel, downloadShippingLabel } from "@/lib/shippingLabelPdf";
 
 // ── Status lifecycle definition ───────────────────────────────────────────
@@ -449,6 +450,13 @@ export default function AdminOrderDetailPage() {
                 style={{ width: "100%", justifyContent: "center" }}
               >
                 <Download style={{ width: 14, height: 14 }} /> Download Receipt
+              </button>
+              <button
+                onClick={() => downloadAdminReceiptPdf(order)}
+                className="a-btn a-btn-ghost a-btn-sm"
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                <Download style={{ width: 14, height: 14 }} /> Download Internal Copy
               </button>
               <button
                 onClick={() => settings && printShippingLabel(order, settings)}

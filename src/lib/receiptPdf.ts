@@ -1,31 +1,43 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { StoreOrder } from "./orderTypes";
+import { StoreOrder, PAYMENT_METHOD_LABELS } from "./orderTypes";
 import { formatPriceINR } from "./storeTypes";
 
 // ════════════════════════════════════════════════════════════════════════
-// BB Store — Order Receipt / Invoice PDF
-// Intentionally basic layout (per spec) — an application-generated
-// receipt, never a dump of the raw Razorpay response, and never
-// containing Razorpay secrets. Uses the order's own stored snapshot data
-// so historical receipts stay accurate even if the product/profile later
-// changes.
+// BB Store — Order Receipt / Tax Invoice PDF  (Customer Copy)
+//
+// Design: professional letterhead with brand identity, clear visual
+// hierarchy, and a polished items table. Uses only the order's stored
+// snapshot data (customerName, items[], etc.) so historical receipts
+// stay accurate even if the product catalogue or user profile later
+// changes. Never contains Razorpay secrets — only the IDs stored on the
+// order record itself, which are the customer's own payment references.
 // ════════════════════════════════════════════════════════════════════════
 
+// ── Page geometry ────────────────────────────────────────────────────────
 const PAGE_W = 595.28; // A4 pt
-const MARGIN = 40;
+const PAGE_H = 841.89;
+const MARGIN = 44;
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const TEXT = "#191631";
-const TEXT_MUTED = "#64608a";
-const BORDER = "#e2ddf5";
-const ACCENT = "#f5601f";
 
-function hexToRgb(hex: string): [number, number, number] {
+// ── Palette ───────────────────────────────────────────────────────────────
+const C_TEXT       = "#191631";
+const C_MUTED      = "#64608a";
+const C_BORDER     = "#e2ddf5";
+const C_ACCENT     = "#f5601f";
+const C_ACCENT_BG  = "#fff4ef";
+const C_HEADER_BG  = "#f6f4fd";
+const C_SUCCESS    = "#1a9f6b";
+const C_SUCCESS_BG = "#e6f7f2";
+const C_WARN_BG    = "#fff8e6";
+const C_WARN       = "#b45309";
+
+function rgb(hex: string): [number, number, number] {
   const v = hex.replace("#", "");
   return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
 }
 
-function formatDate(iso: string): string {
+function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
     day: "numeric",
     month: "long",
@@ -35,77 +47,162 @@ function formatDate(iso: string): string {
   });
 }
 
-export function buildReceiptPdf(order: StoreOrder): jsPDF {
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  let y = MARGIN;
+function fmtDateShort(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
-  // ── Header ──────────────────────────────────────────────────────────
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.setTextColor(...hexToRgb(TEXT));
+async function loadFontAsBase64(url: string): Promise<string> {
+  const response = await fetch(url);
+  const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+
+  let binary = "";
+
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(i, Math.min(i + 0x8000, bytes.length))
+    );
+  }
+
+  return btoa(binary);
+}
+export async function buildReceiptPdf(order: StoreOrder): Promise<jsPDF> {
+const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+const regularFont = await loadFontAsBase64("/fonts/NotoSans-Regular.ttf");
+const boldFont = await loadFontAsBase64("/fonts/NotoSans-Bold.ttf");
+
+doc.addFileToVFS("NotoSans-Regular.ttf", regularFont);
+doc.addFont("NotoSans-Regular.ttf", "NotoSans", "normal");
+
+doc.addFileToVFS("NotoSans-Bold.ttf", boldFont);
+doc.addFont("NotoSans-Bold.ttf", "NotoSans", "bold");
+
+let y = 0;
+
+  // ── Subtle page border / background rule ─────────────────────────────
+  doc.setDrawColor(...rgb(C_BORDER));
+  doc.setLineWidth(0.5);
+  doc.rect(12, 12, PAGE_W - 24, PAGE_H - 24);
+
+  // ── Brand header strip ───────────────────────────────────────────────
+  // Orange accent bar top
+  doc.setFillColor(...rgb(C_ACCENT));
+  doc.rect(12, 12, PAGE_W - 24, 5, "F");
+
+  y = 42;
+
+  // Store name (left)
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(22);
+  doc.setTextColor(...rgb(C_TEXT));
   doc.text("BB Store", MARGIN, y);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(...hexToRgb(TEXT_MUTED));
-  doc.text("Order Receipt", MARGIN, y + 16);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...hexToRgb(TEXT));
-  doc.text(`Order ${order.orderNumber}`, PAGE_W - MARGIN, y, { align: "right" });
-  doc.setFont("helvetica", "normal");
+  // Tagline under store name
+  doc.setFont("NotoSans", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(...hexToRgb(TEXT_MUTED));
-  doc.text(formatDate(order.createdAt), PAGE_W - MARGIN, y + 14, { align: "right" });
+  doc.setTextColor(...rgb(C_MUTED));
+  doc.text("Fuel Your Goals", MARGIN, y + 14);
 
-  y += 34;
-  doc.setDrawColor(...hexToRgb(BORDER));
+  // Document title (right, top-aligned)
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor(...rgb(C_TEXT));
+  doc.text("TAX INVOICE", PAGE_W - MARGIN, y, { align: "right" });
+
+  // Order number + date (right, below title)
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...rgb(C_MUTED));
+  doc.text(`Order ${order.orderNumber}`, PAGE_W - MARGIN, y + 16, { align: "right" });
+  doc.text(fmtDate(order.createdAt), PAGE_W - MARGIN, y + 28, { align: "right" });
+
+  y += 48;
+
+  // Rule beneath header
+  doc.setDrawColor(...rgb(C_BORDER));
   doc.setLineWidth(1);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
   y += 20;
 
-  // ── Payment success banner ─────────────────────────────────────────
-  doc.setFillColor(...hexToRgb("#e8f8f0"));
-  doc.roundedRect(MARGIN, y, CONTENT_W, 30, 4, 4, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...hexToRgb("#1a9f6b"));
-  doc.text(
-    order.paymentStatus === "paid" ? "Payment successful — order placed" : `Payment status: ${order.paymentStatus}`,
-    MARGIN + 12,
-    y + 19
-  );
-  y += 46;
+  // ── Payment status chip ──────────────────────────────────────────────
+  const isPaid = order.paymentStatus === "paid";
+  const chipBg  = isPaid ? C_SUCCESS_BG : C_WARN_BG;
+  const chipTxt = isPaid ? C_SUCCESS : C_WARN;
+  const chipBdr = isPaid ? C_SUCCESS : C_WARN;
+  const chipLabel = isPaid
+    ? "✓  Payment Successful — Order Confirmed"
+    : `Payment Status: ${order.paymentStatus.toUpperCase()}`;
 
-  // ── Customer / Delivery two-column block ───────────────────────────
-  const colW = (CONTENT_W - 20) / 2;
-  doc.setFont("helvetica", "bold");
+  doc.setFillColor(...rgb(chipBg));
+  doc.setDrawColor(...rgb(chipBdr));
+  doc.setLineWidth(0.75);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 28, 5, 5, "FD");
+  doc.setFont("NotoSans", "bold");
   doc.setFontSize(10);
-  doc.setTextColor(...hexToRgb(TEXT));
-  doc.text("Customer", MARGIN, y);
-  doc.text("Delivery Address", MARGIN + colW + 20, y);
-  y += 14;
+  doc.setTextColor(...rgb(chipTxt));
+  doc.text(chipLabel, MARGIN + 14, y + 18);
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.setTextColor(...hexToRgb(TEXT_MUTED));
-  const custLines = [order.customerName, order.customerEmail, order.customerPhone];
+  y += 44;
+
+  // ── Customer / Delivery two-column block ─────────────────────────────
+  const COL_W = (CONTENT_W - 16) / 2;
+  const COL2_X = MARGIN + COL_W + 16;
+
+  // Section backgrounds
+  doc.setFillColor(...rgb(C_HEADER_BG));
+  doc.roundedRect(MARGIN, y, COL_W, 14, 2, 2, "F");
+  doc.roundedRect(COL2_X, y, COL_W, 14, 2, 2, "F");
+
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...rgb(C_MUTED));
+  doc.text("BILLED TO", MARGIN + 8, y + 10);
+  doc.text("SHIP TO", COL2_X + 8, y + 10);
+  y += 22;
+
   const addr = order.deliveryAddress;
+  const custLines = [
+    order.customerName,
+    order.customerEmail,
+    order.customerPhone,
+  ].filter(Boolean) as string[];
   const addrLines = [
+    order.customerName,
     addr.line1 + (addr.line2 ? `, ${addr.line2}` : ""),
     `${addr.city}, ${addr.state} – ${addr.pincode}`,
     addr.country,
-  ];
-  const startY = y;
-  custLines.forEach((line, i) => doc.text(line || "—", MARGIN, startY + i * 13));
-  addrLines.forEach((line, i) => doc.text(line || "—", MARGIN + colW + 20, startY + i * 13));
-  y = startY + Math.max(custLines.length, addrLines.length) * 13 + 20;
+  ].filter(Boolean) as string[];
 
-  doc.setDrawColor(...hexToRgb(BORDER));
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(9.5);
+  const lineH = 13;
+  const baseY = y;
+  custLines.forEach((line, i) => {
+    const isBold = i === 0;
+    doc.setFont("NotoSans", isBold ? "bold" : "normal");
+    doc.setTextColor(...rgb(isBold ? C_TEXT : C_MUTED));
+    doc.text(line, MARGIN + 8, baseY + i * lineH);
+  });
+  addrLines.forEach((line, i) => {
+    const isBold = i === 0;
+    doc.setFont("NotoSans", isBold ? "bold" : "normal");
+    doc.setTextColor(...rgb(isBold ? C_TEXT : C_MUTED));
+    doc.text(line, COL2_X + 8, baseY + i * lineH);
+  });
+
+  y = baseY + Math.max(custLines.length, addrLines.length) * lineH + 22;
+
+  doc.setDrawColor(...rgb(C_BORDER));
+  doc.setLineWidth(0.75);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 18;
+  y += 20;
 
-  // ── Items table ─────────────────────────────────────────────────────
+  // ── Items table ──────────────────────────────────────────────────────
   const rows = (order.items ?? []).map((item) => [
     item.productName + (item.variantName ? `\n${item.variantName}` : ""),
     item.sku || "—",
@@ -119,79 +216,119 @@ export function buildReceiptPdf(order: StoreOrder): jsPDF {
     margin: { left: MARGIN, right: MARGIN },
     head: [["Product", "SKU", "Qty", "Unit Price", "Amount"]],
     body: rows,
-    styles: { font: "helvetica", fontSize: 9, textColor: hexToRgb(TEXT), cellPadding: 6 },
-    headStyles: { fillColor: hexToRgb("#f6f4fd"), textColor: hexToRgb(TEXT), fontStyle: "bold" },
+    styles: {
+      font: "NotoSans",
+      fontSize: 9,
+      textColor: rgb(C_TEXT),
+      cellPadding: { top: 7, right: 8, bottom: 7, left: 8 },
+    },
+    headStyles: {
+      fillColor: rgb(C_TEXT),
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 8.5,
+    },
+    alternateRowStyles: { fillColor: rgb(C_HEADER_BG) },
     columnStyles: {
-      2: { halign: "center" },
-      3: { halign: "right" },
-      4: { halign: "right" },
+      0: { cellWidth: "auto" },
+      1: { cellWidth: 72, fontSize: 8, textColor: rgb(C_MUTED) },
+      2: { cellWidth: 32, halign: "center" },
+      3: { cellWidth: 68, halign: "right" },
+      4: { cellWidth: 68, halign: "right", fontStyle: "bold" },
     },
     theme: "grid",
+    tableLineColor: rgb(C_BORDER),
+    tableLineWidth: 0.5,
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  y = (doc as any).lastAutoTable.finalY + 20;
+  y = (doc as any).lastAutoTable.finalY + 24;
 
-  // ── Totals ──────────────────────────────────────────────────────────
+  // ── Totals block ─────────────────────────────────────────────────────
   const savingsPaise = order.subtotalPaise - order.totalPaise + order.deliveryPaise;
-  const totalsX = PAGE_W - MARGIN - 200;
-  function totalLine(label: string, value: string, bold = false) {
-    doc.setFont("helvetica", bold ? "bold" : "normal");
+  const TOTALS_X = PAGE_W - MARGIN - 220;
+  const TOTALS_W = 220;
+
+  // Totals background
+  doc.setFillColor(...rgb(C_HEADER_BG));
+  const totalRows = 2 + (savingsPaise > 0 ? 1 : 0) + 1; // sub + optional discount + delivery + total
+  const totalsH = totalRows * 16 + 32;
+  doc.roundedRect(TOTALS_X, y - 8, TOTALS_W, totalsH, 4, 4, "F");
+
+  function totalRow(label: string, value: string, opts: { bold?: boolean; accent?: boolean; green?: boolean } = {}) {
+    const { bold = false, accent = false, green = false } = opts;
+    doc.setFont("NotoSans", bold ? "bold" : "normal");
     doc.setFontSize(bold ? 11 : 9.5);
-    doc.setTextColor(...hexToRgb(bold ? TEXT : TEXT_MUTED));
-    doc.text(label, totalsX, y);
-    doc.text(value, PAGE_W - MARGIN, y, { align: "right" });
-    y += bold ? 18 : 14;
+    const txtColor = accent ? C_ACCENT : green ? C_SUCCESS : bold ? C_TEXT : C_MUTED;
+    doc.setTextColor(...rgb(txtColor));
+    doc.text(label, TOTALS_X + 12, y);
+    doc.text(value, PAGE_W - MARGIN - 4, y, { align: "right" });
+    y += bold ? 20 : 16;
   }
-  totalLine("Subtotal", formatPriceINR(order.subtotalPaise));
-  if (savingsPaise > 0) totalLine("Discount", `−${formatPriceINR(savingsPaise)}`);
-  totalLine("Delivery", order.deliveryPaise > 0 ? formatPriceINR(order.deliveryPaise) : "Free");
-  doc.setDrawColor(...hexToRgb(BORDER));
-  doc.line(totalsX, y - 4, PAGE_W - MARGIN, y - 4);
+
+  totalRow("Subtotal", formatPriceINR(order.subtotalPaise));
+  if (savingsPaise > 0) totalRow("Discount", `− ${formatPriceINR(savingsPaise)}`, { green: true });
+  totalRow("Delivery", order.deliveryPaise > 0 ? formatPriceINR(order.deliveryPaise) : "FREE", {
+    green: order.deliveryPaise === 0,
+  });
+
+  // Divider before grand total
+  doc.setDrawColor(...rgb(C_BORDER));
+  doc.setLineWidth(0.75);
+  doc.line(TOTALS_X + 4, y - 4, PAGE_W - MARGIN - 4, y - 4);
   y += 6;
-  totalLine("Total Paid", formatPriceINR(order.totalPaise), true);
+  totalRow("Total Paid", formatPriceINR(order.totalPaise), { bold: true, accent: true });
 
-  y += 12;
-  doc.setDrawColor(...hexToRgb(BORDER));
+  y += 18;
+
+  // ── Section divider ──────────────────────────────────────────────────
+  doc.setDrawColor(...rgb(C_BORDER));
+  doc.setLineWidth(0.75);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 20;
+  y += 22;
 
-  // ── Payment details ─────────────────────────────────────────────────
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...hexToRgb(TEXT));
+  // ── Payment details ───────────────────────────────────────────────────
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(...rgb(C_TEXT));
   doc.text("Payment Details", MARGIN, y);
   y += 16;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.setTextColor(...hexToRgb(TEXT_MUTED));
-  const paymentRows: [string, string][] = [
-    ["Payment method", order.paymentMethod.toUpperCase()],
-    ["Payment status", order.paymentStatus.toUpperCase()],
+  const payRows: [string, string][] = [
+    ["Method", PAYMENT_METHOD_LABELS[order.paymentMethod] ?? order.paymentMethod],
+    ["Status", order.paymentStatus.charAt(0).toUpperCase() + order.paymentStatus.slice(1)],
     ["Currency", "INR"],
     ["Amount paid", formatPriceINR(order.totalPaise)],
   ];
-  if (order.razorpayPaymentId) paymentRows.push(["Razorpay payment ID", order.razorpayPaymentId]);
-  if (order.razorpayOrderId) paymentRows.push(["Razorpay order ID", order.razorpayOrderId]);
-  paymentRows.forEach(([label, value]) => {
+  if (order.razorpayPaymentId) payRows.push(["Razorpay payment ID", order.razorpayPaymentId]);
+  if (order.razorpayOrderId)   payRows.push(["Razorpay order ID",   order.razorpayOrderId]);
+  if (order.paymentReference)  payRows.push(["Payment reference",   order.paymentReference]);
+
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(9);
+  payRows.forEach(([label, value]) => {
+    doc.setTextColor(...rgb(C_MUTED));
     doc.text(label, MARGIN, y);
-    doc.text(value, MARGIN + 180, y);
+    doc.setTextColor(...rgb(C_TEXT));
+    doc.text(value, MARGIN + 170, y);
     y += 13;
   });
 
-  // ── Footer ──────────────────────────────────────────────────────────
-  const pageH = doc.internal.pageSize.getHeight();
-  doc.setFont("helvetica", "normal");
+  // ── Footer ───────────────────────────────────────────────────────────
+  const footerY = PAGE_H - 36;
+  doc.setFillColor(...rgb(C_ACCENT));
+  doc.rect(12, PAGE_H - 20, PAGE_W - 24, 5, "F");
+
+  doc.setFont("NotoSans", "normal");
   doc.setFontSize(8);
-  doc.setTextColor(...hexToRgb(TEXT_MUTED));
-  doc.text("BB Store — this receipt was generated automatically.", MARGIN, pageH - 30);
-  doc.text(`Generated ${new Date().toLocaleDateString("en-IN")}`, PAGE_W - MARGIN, pageH - 30, { align: "right" });
+  doc.setTextColor(...rgb(C_MUTED));
+  doc.text("BB Store  ·  support@bbstore.example  ·  This is a computer-generated receipt and does not require a signature.", MARGIN, footerY);
+  doc.text(`Generated ${fmtDateShort(new Date().toISOString())}`, PAGE_W - MARGIN, footerY, { align: "right" });
 
   return doc;
 }
 
-export function downloadReceiptPdf(order: StoreOrder) {
-  const doc = buildReceiptPdf(order);
+export async function downloadReceiptPdf(order: StoreOrder) {
+  const doc = await buildReceiptPdf(order);
   doc.save(`Receipt-${order.orderNumber}.pdf`);
 }
