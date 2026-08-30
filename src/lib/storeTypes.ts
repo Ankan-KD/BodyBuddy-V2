@@ -205,6 +205,41 @@ export function categoryFromRow(r: CategoryRow): StoreCategory {
   };
 }
 
+// ── Product Groups (supabase/009_catalogue_redesign.sql) ──────────────────
+// Product Groups replaced store_categories as what customers actually
+// browse by on the storefront (admin: Settings → Product Groups & Types;
+// "user_category" in the old catalogue terminology). They're a flat list —
+// no parent/subcategory concept — so we map them into the existing
+// StoreCategory shape (parentId always null, no description/image) rather
+// than introducing a second, differently-shaped "category" concept that
+// every storefront component would need to learn about separately.
+
+export interface ProductGroupRow {
+  id: string;
+  name: string;
+  slug: string;
+  icon_key: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export function categoryFromProductGroupRow(r: ProductGroupRow): StoreCategory {
+  return {
+    id: r.id,
+    parentId: null,
+    slug: r.slug,
+    name: r.name,
+    description: "",
+    iconKey: r.icon_key,
+    imageUrl: null,
+    sortOrder: r.sort_order,
+    isActive: true,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
 export interface BrandRow {
   id: string;
   name: string;

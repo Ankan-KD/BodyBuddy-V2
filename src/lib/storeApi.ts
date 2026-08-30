@@ -11,71 +11,67 @@ import {
   StoreProduct,
   StoreProductVariant,
   StoreBrand,
-  categoryFromRow,
+  categoryFromProductGroupRow,
   productFromRow,
   variantFromRow,
   brandFromRow,
   defaultVariant,
-  CategoryRow,
+  ProductGroupRow,
   ProductRow,
   VariantRow,
   BrandRow,
 } from "./storeTypes";
 
-// ── Categories ────────────────────────────────────────────────────────────
+// ── Categories (backed by Product Groups) ──────────────────────────────────
+// Customers browse the storefront by Product Group (supabase/
+// 009_catalogue_redesign.sql) — admin's "Categories" page was replaced by
+// "Product Groups & Types" long ago, and products are classified via
+// product_group_id, not the old category_id/store_categories table. These
+// functions keep their original names/shapes (StoreCategory,
+// fetchTopLevelCategories, etc.) so every consuming component keeps working
+// unchanged — only the underlying table changed.
 
 /**
- * Fetch all active top-level categories (parent_id IS NULL), ordered by sort_order.
+ * Fetch all Product Groups — what customers browse by ("Shop by Group" /
+ * the storefront's "Categories" section), ordered by sort_order.
  */
 export async function fetchTopLevelCategories(): Promise<StoreCategory[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
-    .from("store_categories")
+    .from("product_groups")
     .select("*")
-    .is("parent_id", null)
-    .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
   if (error) {
     console.error("[storeApi] fetchTopLevelCategories:", error.message);
     return [];
   }
-  return (data as CategoryRow[]).map(categoryFromRow);
+  return (data as ProductGroupRow[]).map(categoryFromProductGroupRow);
 }
 
 /**
- * Fetch subcategories for a given parent category id.
+ * Product Groups are a flat list — there's no sub-group concept (unlike the
+ * old store_categories parent/child hierarchy). Kept as a no-op so any
+ * caller still asking for subcategories degrades gracefully to "none"
+ * instead of erroring.
  */
-export async function fetchSubcategories(parentId: string): Promise<StoreCategory[]> {
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("store_categories")
-    .select("*")
-    .eq("parent_id", parentId)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
-
-  if (error) {
-    console.error("[storeApi] fetchSubcategories:", error.message);
-    return [];
-  }
-  return (data as CategoryRow[]).map(categoryFromRow);
+export async function fetchSubcategories(_parentId: string): Promise<StoreCategory[]> {
+  return [];
 }
 
 /**
- * Fetch a single category by slug.
+ * Fetch a single Product Group by slug.
  */
 export async function fetchCategoryBySlug(slug: string): Promise<StoreCategory | null> {
   if (!supabase) return null;
   const { data, error } = await supabase
-    .from("store_categories")
+    .from("product_groups")
     .select("*")
     .eq("slug", slug)
-    .eq("is_active", true)
     .single();
 
   if (error) return null;
-  return categoryFromRow(data as CategoryRow);
+  return categoryFromProductGroupRow(data as ProductGroupRow);
 }
 
 // ── Products ──────────────────────────────────────────────────────────────
@@ -113,30 +109,30 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
     orderDir = "asc",
   } = opts;
 
-  // When filtering by category slug, first resolve the slug to an id.
-  // PostgREST cannot filter on joined columns (e.g. .eq("category.slug", ...)),
-  // so we do a quick lookup first and then filter by category_id.
-  let resolvedCategoryId: string | null = null;
+  // When filtering by category (Product Group) slug, first resolve the slug
+  // to an id. PostgREST cannot filter on joined columns
+  // (e.g. .eq("product_group.slug", ...)), so we do a quick lookup first and
+  // then filter by product_group_id.
+  let resolvedGroupId: string | null = null;
   if (categorySlug) {
-    const { data: catData } = await supabase
-      .from("store_categories")
+    const { data: groupData } = await supabase
+      .from("product_groups")
       .select("id")
       .eq("slug", categorySlug)
-      .eq("is_active", true)
       .single();
-    resolvedCategoryId = catData?.id ?? null;
-    // If slug doesn't match any category, bail early — no results possible.
-    if (!resolvedCategoryId) return [];
+    resolvedGroupId = groupData?.id ?? null;
+    // If slug doesn't match any group, bail early — no results possible.
+    if (!resolvedGroupId) return [];
   }
 
   let query = supabase
     .from("store_products")
-    .select(`*, category:store_categories!category_id(*), store_brands(*), store_product_variants(*)`)
+    .select(`*, product_group:product_groups!product_group_id(*), store_brands(*), store_product_variants(*)`)
     .eq("published", true)
     .eq("availability", "active");
 
-  if (resolvedCategoryId) {
-    query = query.eq("category_id", resolvedCategoryId);
+  if (resolvedGroupId) {
+    query = query.eq("product_group_id", resolvedGroupId);
   }
   if (brandId) {
     query = query.eq("brand_id", brandId);
@@ -175,8 +171,8 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
     if ((row as any).store_brands) {
       product.brand = brandFromRow((row as any).store_brands as BrandRow);
     }
-    if ((row as any).category) {
-      product.category = categoryFromRow((row as any).category as CategoryRow);
+    if ((row as any).product_group) {
+      product.category = categoryFromProductGroupRow((row as any).product_group as ProductGroupRow);
     }
     // Attach variants (needed for price/discount/stock display in cards)
     if ((row as any).store_product_variants) {
@@ -191,24 +187,23 @@ export async function fetchProducts(opts: FetchProductsOptions = {}): Promise<St
 
 /**
  * Distinct, non-empty product types among published+active products in a
- * category — used to render the "Type" filter chips under a category page.
- * Fine-grained (e.g. "Whey Protein"), separate from the broad category.
+ * Product Group — used to render the "Type" filter chips under a group page.
+ * Fine-grained (e.g. "Whey Protein"), separate from the broad group.
  */
 export async function fetchProductTypesForCategory(categorySlug: string): Promise<string[]> {
   if (!supabase || !categorySlug) return [];
 
-  const { data: catData } = await supabase
-    .from("store_categories")
+  const { data: groupData } = await supabase
+    .from("product_groups")
     .select("id")
     .eq("slug", categorySlug)
-    .eq("is_active", true)
     .single();
-  if (!catData?.id) return [];
+  if (!groupData?.id) return [];
 
   const { data, error } = await supabase
     .from("store_products")
     .select("product_type")
-    .eq("category_id", catData.id)
+    .eq("product_group_id", groupData.id)
     .eq("published", true)
     .eq("availability", "active")
     .neq("product_type", "");
@@ -247,7 +242,7 @@ export async function fetchProductsByIds(ids: string[]): Promise<StoreProduct[]>
 
   const { data, error } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), category:store_categories!category_id(*), store_product_variants(*)")
+    .select("*, store_brands(*), product_group:product_groups!product_group_id(*), store_product_variants(*)")
     .in("id", ids)
     .eq("published", true)
     .eq("availability", "active");
@@ -257,7 +252,7 @@ export async function fetchProductsByIds(ids: string[]): Promise<StoreProduct[]>
   const products = (data as ProductRow[]).map((row) => {
     const product = productFromRow(row);
     if ((row as any).store_brands) product.brand = brandFromRow((row as any).store_brands as BrandRow);
-    if ((row as any).category) product.category = categoryFromRow((row as any).category as CategoryRow);
+    if ((row as any).product_group) product.category = categoryFromProductGroupRow((row as any).product_group as ProductGroupRow);
     if ((row as any).store_product_variants) {
       product.variants = ((row as any).store_product_variants as VariantRow[])
         .filter((v) => v.availability !== "discontinued")
@@ -279,7 +274,7 @@ export async function fetchProductBySlug(slug: string): Promise<StoreProduct | n
 
   const { data: productData, error: productError } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), category:store_categories!category_id(*)")
+    .select("*, store_brands(*), product_group:product_groups!product_group_id(*)")
     .eq("slug", slug)
     .eq("published", true)
     .single();
@@ -291,8 +286,8 @@ export async function fetchProductBySlug(slug: string): Promise<StoreProduct | n
   if ((productData as any).store_brands) {
     product.brand = brandFromRow((productData as any).store_brands as BrandRow);
   }
-  if ((productData as any).category) {
-    product.category = categoryFromRow((productData as any).category as CategoryRow);
+  if ((productData as any).product_group) {
+    product.category = categoryFromProductGroupRow((productData as any).product_group as ProductGroupRow);
   }
 
   // Fetch variants
@@ -318,7 +313,7 @@ export async function fetchProductById(id: string): Promise<StoreProduct | null>
 
   const { data, error } = await supabase
     .from("store_products")
-    .select("*, store_brands(*), category:store_categories!category_id(*), store_product_variants(*)")
+    .select("*, store_brands(*), product_group:product_groups!product_group_id(*), store_product_variants(*)")
     .eq("id", id)
     .eq("published", true)
     .single();
@@ -327,7 +322,7 @@ export async function fetchProductById(id: string): Promise<StoreProduct | null>
 
   const product = productFromRow(data as ProductRow);
   if ((data as any).store_brands) product.brand = brandFromRow((data as any).store_brands);
-  if ((data as any).category) product.category = categoryFromRow((data as any).category);
+  if ((data as any).product_group) product.category = categoryFromProductGroupRow((data as any).product_group);
   if ((data as any).store_product_variants) {
     product.variants = ((data as any).store_product_variants as VariantRow[]).map(variantFromRow);
   }

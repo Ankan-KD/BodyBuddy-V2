@@ -128,8 +128,12 @@ export function ProductCard({ product, href }: ProductCardProps) {
       )}
     >
       {/* Wishlist toggle — sibling of the Link (not nested inside the <a>),
-          absolutely positioned over the bottom-right of the image. */}
-      <WishlistHeartButton product={product} className="absolute z-10 top-[108px] right-2" />
+          absolutely positioned over the top-left of the image, mirroring
+          the discount badge's top-right position. This container and the
+          image div both start at the same y=0, so positioning it here
+          (rather than inside the image div) still lines it up correctly
+          while keeping the button out of the <a> tag. */}
+      <WishlistHeartButton product={product} className="absolute z-10 top-2 left-2" />
 
       <Link href={link} className="block">
         {/* Image */}
@@ -147,7 +151,7 @@ export function ProductCard({ product, href }: ProductCardProps) {
           {badgeLabel && (
             <span
               className={cn(
-                "absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full",
+                "absolute top-9 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full",
                 badgeLabel === "Best Seller"
                   ? "bg-amber-500/20 text-amber-600 dark:text-amber-300"
                   : "bg-nova-500/20 text-nova-600 dark:text-nova-300"
