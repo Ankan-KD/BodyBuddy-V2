@@ -24,11 +24,13 @@ const DEFAULT_SETTINGS: UserSettings = {
   calorieGoal: 3500,
   proteinGoal: 180,
   goalWeightKg: 80,
-  startWeightKg: 70,
+  startWeightKg: 0,
   waterGoalMl: 2500,
   units: "metric",
   theme: "dark",
   onboarded: false,
+  gender: "male",
+  heightCm: 0,
 };
 
 // ── DB row <-> app-model mapping ────────────────────────────────────────
@@ -88,6 +90,8 @@ interface SettingsRow {
   units: string;
   theme: string;
   onboarded: boolean;
+  gender?: string;
+  height_cm?: number;
 }
 
 function settingsFromRow(r: SettingsRow): UserSettings {
@@ -102,6 +106,8 @@ function settingsFromRow(r: SettingsRow): UserSettings {
     units: (r.units as UserSettings["units"]) ?? "metric",
     theme: (r.theme as UserSettings["theme"]) ?? "dark",
     onboarded: !!r.onboarded,
+    gender: (r.gender as UserSettings["gender"]) ?? "male",
+    heightCm: r.height_cm ? Number(r.height_cm) : 0,
   };
 }
 
@@ -117,6 +123,8 @@ function settingsToRow(s: Partial<UserSettings>) {
   if (s.units !== undefined) row.units = s.units;
   if (s.theme !== undefined) row.theme = s.theme;
   if (s.onboarded !== undefined) row.onboarded = s.onboarded;
+  if (s.gender !== undefined) row.gender = s.gender;
+  if (s.heightCm !== undefined) row.height_cm = s.heightCm;
   return row;
 }
 
@@ -887,6 +895,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     const clamped = Math.max(0, input.quantity);
     const hasContribution = !!(input.dietContributions && input.dietContributions.some((c) => c.foodId && c.quantity));
+
+    // Read the pre-update entry from stateRef NOW (before updateDay enqueues
+    // its setState), so nextQuantity/nextMapped reflect the correct accumulation.
+    // Reading via getDayRecord *after* updateDay would be a stale-closure bug:
+    // setState is async and stateRef won't have flipped yet.
+    const prevEntry = getDayRecord(date).recentLogs.find((l) => l.recentFoodId === recentFoodId);
+    const nextQuantity = (prevEntry?.loggedQuantity ?? 0) + clamped;
+    const nextMapped = (prevEntry?.mapped ?? false) || hasContribution;
+
     updateDay(date, (d) => {
       const existing = d.recentLogs.find((l) => l.recentFoodId === recentFoodId);
       const recentLogs: RecentFoodLogEntry[] = existing
@@ -898,10 +915,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : [...d.recentLogs, { recentFoodId: recentFoodId!, loggedQuantity: clamped, mapped: hasContribution }];
       return { ...d, recentLogs };
     });
-
-    const currentEntry = getDayRecord(date).recentLogs.find((l) => l.recentFoodId === recentFoodId);
-    const nextQuantity = (currentEntry?.loggedQuantity ?? 0) + clamped;
-    const nextMapped = (currentEntry?.mapped ?? false) || hasContribution;
     supabase
       .from("recent_food_logs")
       .upsert(

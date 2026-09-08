@@ -335,3 +335,145 @@ export function formatMasterFoodsForPrompt(entries: MasterFoodEntry[]): string {
     )
     .join("\n");
 }
+
+// ── Onboarding suggestions config ─────────────────────────────────────────
+// Only the things that CANNOT come from the database live here:
+//   - which IDs to surface (curation / ordering)
+//   - the display name shown in the onboarding pill (may be friendlier than DB name)
+//   - the emoji icon key (aesthetic choice, not stored in DB)
+//   - the default target quantity override (DB weightG is reference, not a goal)
+//   - whether to pre-select it on first load
+//
+// Everything else (calories, protein, carbs, fats, unit, kind, aliases,
+// category, baseIngredient) is derived at runtime from the master DB via
+// masterFoodToDietPrefill(), so updating the CSV/JSON automatically flows
+// through without touching this file.
+//
+// To add, remove, or reorder suggestions: edit this array only.
+// To change nutrition values: update masterFoodDatabase.json (regenerate from CSV).
+
+export interface OnboardingSuggestionConfig {
+  masterFoodId: number;
+  /** User-facing display name in the onboarding pill. */
+  displayName: string;
+  /** Icon key from FOOD_ICON_OPTIONS (src/lib/iconKeys.ts). */
+  emoji: string;
+  /** Pre-selected when the user lands on step 3. */
+  defaultSelected?: boolean;
+  /**
+   * Override the default target quantity. When omitted, the DB's own
+   * weightG / servingSize is used as the starting quantity.
+   */
+  targetQuantityOverride?: number;
+}
+
+export const ONBOARDING_SUGGESTION_CONFIG: OnboardingSuggestionConfig[] = [
+  // ── Proteins ────────────────────────────────────────────────────────────
+  { masterFoodId: 1344, displayName: "Eggs",          emoji: "Egg",       defaultSelected: true,  targetQuantityOverride: 3   },
+  { masterFoodId: 2287, displayName: "Chicken",       emoji: "Drumstick", defaultSelected: true,  targetQuantityOverride: 200 },
+  { masterFoodId: 2712, displayName: "Fish",          emoji: "Fish",                              targetQuantityOverride: 150 },
+  { masterFoodId: 2236, displayName: "Dal / Lentils", emoji: "Soup",                              targetQuantityOverride: 150 },
+  // ── Dairy ────────────────────────────────────────────────────────────────
+  // masterFoodId 0: no standalone cow-milk entry exists in the master DB.
+  // Nutrition is handcrafted from standard whole-milk values (per 100 ml).
+  { masterFoodId: 0,    displayName: "Milk",          emoji: "Milk",                              targetQuantityOverride: 300 },
+  { masterFoodId: 420,  displayName: "Curd / Yogurt", emoji: "Milk",                              targetQuantityOverride: 200 },
+  // ── Grains & Cereals ────────────────────────────────────────────────────
+  { masterFoodId: 965,  displayName: "Rice",          emoji: "Wheat",                             targetQuantityOverride: 200 },
+  { masterFoodId: 893,  displayName: "Oats",          emoji: "Wheat",                             targetQuantityOverride: 80  },
+  { masterFoodId: 106,  displayName: "Bread",         emoji: "Croissant",                         targetQuantityOverride: 2   },
+  // ── Fruits ───────────────────────────────────────────────────────────────
+  { masterFoodId: 730,  displayName: "Banana",        emoji: "Banana",                            targetQuantityOverride: 2   },
+  { masterFoodId: 721,  displayName: "Apple",         emoji: "Apple",                             targetQuantityOverride: 1   },
+  // ── Vegetables ───────────────────────────────────────────────────────────
+  { masterFoodId: 2802, displayName: "Potato",        emoji: "Carrot",                            targetQuantityOverride: 200 },
+  // ── Fats & Nuts ──────────────────────────────────────────────────────────
+  { masterFoodId: 2115, displayName: "Peanut Butter", emoji: "Nut",                               targetQuantityOverride: 2   },
+  { masterFoodId: 2003, displayName: "Almonds",       emoji: "Nut",                               targetQuantityOverride: 10  },
+  // ── Meat (generic) ───────────────────────────────────────────────────────
+  // masterFoodId 2382 = Beef Top Blade Cooked (per 100 g): 184 kcal, 21.9 g protein.
+  // Used as a reasonable proxy for generic cooked meat (chicken/mutton/beef).
+  { masterFoodId: 2382, displayName: "Meat",          emoji: "Beef",                              targetQuantityOverride: 150 },
+];
+
+export interface OnboardingSuggestion extends DietPrefill {
+  /** Display name shown in the onboarding pill (may differ from DB entry name). */
+  displayName: string;
+  /** Pre-selected when the user lands on step 3. */
+  defaultSelected: boolean;
+}
+
+/**
+ * Resolves ONBOARDING_SUGGESTION_CONFIG into fully-populated suggestions by
+ * looking each masterFoodId up in the master DB and running
+ * masterFoodToDietPrefill(). Nutrition values come entirely from the JSON —
+ * nothing is hardcoded here.
+ *
+ * Entries with masterFoodId === 0 (no DB match) receive a safe generic
+ * prefill with zero nutrition so they still appear in the UI; the user can
+ * adjust values after onboarding via the Foods page.
+ */
+export function getOnboardingSuggestions(): OnboardingSuggestion[] {
+  const byId = new Map<number, MasterFoodEntry>(MASTER_FOODS.map((e) => [e.id, e]));
+
+  return ONBOARDING_SUGGESTION_CONFIG.map((cfg) => {
+    const entry = byId.get(cfg.masterFoodId);
+
+    let prefill: DietPrefill;
+    if (entry) {
+      prefill = masterFoodToDietPrefill(entry);
+    } else if (cfg.displayName === "Milk") {
+      // No standalone cow-milk entry exists in the master DB. Use standard
+      // whole-milk values (per 100 ml): 61 kcal, 3.2 g protein, 4.8 g carbs,
+      // 3.3 g fat. This avoids the zero-nutrition placeholder for a food that
+      // is nutritionally significant for many users.
+      prefill = {
+        name: "Milk",
+        category: "dairy",
+        customCategory: "",
+        emoji: cfg.emoji,
+        unit: "ml",
+        kind: "quantity",
+        targetQuantity: 300,
+        calories: 0.61,   // kcal per ml — scaled by targetQuantity at display time
+        protein: 0.032,
+        carbs: 0.048,
+        fats: 0.033,
+        aliases: ["doodh", "cow milk", "whole milk", "full cream milk", "toned milk"],
+        baseIngredient: "milk",
+      };
+    } else {
+      // No DB entry (masterFoodId === 0 or stale ID). Produce a zero-nutrition
+      // placeholder so the suggestion still renders; user can edit later.
+      prefill = {
+        name: cfg.displayName,
+        category: "custom",
+        customCategory: "",
+        emoji: cfg.emoji,
+        unit: "serving",
+        kind: "binary",
+        targetQuantity: 1,
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fats: 0,
+        aliases: [],
+        baseIngredient: cfg.displayName.toLowerCase(),
+      };
+    }
+
+    // Apply the target quantity override if provided.
+    const targetQuantity =
+      cfg.targetQuantityOverride !== undefined
+        ? cfg.targetQuantityOverride
+        : prefill.targetQuantity;
+
+    return {
+      ...prefill,
+      displayName: cfg.displayName,
+      emoji: cfg.emoji, // config emoji takes priority (aesthetic, not DB-stored)
+      targetQuantity,
+      defaultSelected: cfg.defaultSelected ?? false,
+    };
+  });
+}

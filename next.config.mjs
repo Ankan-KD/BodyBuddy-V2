@@ -5,8 +5,12 @@ const nextConfig = {
   // Produces a self-contained `.next/standalone` build (server + only the
   // node_modules actually needed at runtime) — this is what the Docker
   // image copies into the final runtime stage, keeping it small.
-  //output: "standalone",
+  // Uncomment for Docker/self-hosted deployment (see Dockerfile) — Vercel
+  // errors with this enabled, so keep it commented out for Vercel builds.
+  // output: "standalone",
 
+
+  
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**" },

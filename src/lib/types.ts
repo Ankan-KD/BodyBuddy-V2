@@ -65,6 +65,8 @@ export interface UserSettings {
   units: "metric" | "imperial";
   theme: "light" | "dark" | "system" | "princess";
   onboarded: boolean;
+  gender: "male" | "female" | "other";
+  heightCm: number;
 }
 
 export interface ParsedFoodMatch {

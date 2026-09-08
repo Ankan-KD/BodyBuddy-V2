@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { BottomNav } from "./BottomNav";
 import { QuickLogSheet } from "./QuickLogSheet";
 import { LogDateSwitcher } from "./LogDateSwitcher";
-import { StoreProvider } from "@/lib/store";
+import { StoreProvider, useStore } from "@/lib/store";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Loader2 } from "lucide-react";
 import { AppIcon } from "./AppIcon";
@@ -190,18 +190,58 @@ function Gate({ children }: { children: React.ReactNode }) {
 
   return (
     <StoreProvider>
-      <div className="mx-auto max-w-md min-h-dvh flex flex-col">
-        {!hideChrome && <LogDateSwitcher />}
-        <main className={hideChrome ? "flex-1" : "flex-1 pb-28"}>{children}</main>
-        {!hideChrome && <BottomNav onLog={() => setLogOpen(true)} />}
-        <QuickLogSheet open={logOpen} onClose={() => setLogOpen(false)} />
-        {!configured && (
-          <div className="fixed top-0 inset-x-0 z-50 bg-ember-600 text-white text-[11px] text-center py-1 px-2">
-            Supabase not configured — data won&apos;t be saved. See supabase/schema.sql and .env.example.
-          </div>
-        )}
-      </div>
+      <OnboardingGate hideChrome={hideChrome} configured={configured} logOpen={logOpen} setLogOpen={setLogOpen}>
+        {children}
+      </OnboardingGate>
     </StoreProvider>
+  );
+}
+
+/**
+ * Sits inside StoreProvider so it can read `settings.onboarded`.
+ * Redirects any authenticated app route to /onboarding when the user
+ * hasn't completed onboarding yet — not just /dashboard.
+ */
+function OnboardingGate({
+  children,
+  hideChrome,
+  configured,
+  logOpen,
+  setLogOpen,
+}: {
+  children: React.ReactNode;
+  hideChrome: boolean;
+  configured: boolean;
+  logOpen: boolean;
+  setLogOpen: (v: boolean) => void;
+}) {
+  const { settings, ready } = useStore();
+  const pathname = usePathname();
+  const router = useRouter();
+  const isOnboarding = pathname === "/onboarding";
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!settings.onboarded && !isOnboarding) {
+      router.replace("/onboarding");
+    }
+  }, [ready, settings.onboarded, isOnboarding, router]);
+
+  // Show splash while store is loading or while redirect is pending.
+  if (!ready || (!settings.onboarded && !isOnboarding)) return <Splash />;
+
+  return (
+    <div className="mx-auto max-w-md min-h-dvh flex flex-col">
+      {!hideChrome && <LogDateSwitcher />}
+      <main className={hideChrome ? "flex-1" : "flex-1 pb-28"}>{children}</main>
+      {!hideChrome && <BottomNav onLog={() => setLogOpen(true)} />}
+      <QuickLogSheet open={logOpen} onClose={() => setLogOpen(false)} />
+      {!configured && (
+        <div className="fixed top-0 inset-x-0 z-50 bg-ember-600 text-white text-[11px] text-center py-1 px-2">
+          Supabase not configured — data won&apos;t be saved. See supabase/schema.sql and .env.example.
+        </div>
+      )}
+    </div>
   );
 }
 

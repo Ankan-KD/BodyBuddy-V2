@@ -82,6 +82,112 @@ export function suggestedCalorieGoal(weightKg: number, goal: GoalMode): number {
   return maintenance;
 }
 
+// ── Personalized onboarding calculations ────────────────────────────────
+// These use Harris-Benedict BMR + a moderate activity multiplier (1.55)
+// to produce personalized calorie targets based on gender, height, weight,
+// and goal. The protein target is derived from body weight and goal.
+// All values are approximate starting estimates — users can always adjust.
+
+/**
+ * Calculates BMI from height and weight.
+ */
+export function calculateBMI(weightKg: number, heightCm: number): number {
+  if (!heightCm || heightCm <= 0) return 0;
+  const heightM = heightCm / 100;
+  return Math.round((weightKg / (heightM * heightM)) * 10) / 10;
+}
+
+/**
+ * Returns a BMI-based recommended goal weight for the given height.
+ * Targets the middle of the "normal" BMI range (22.5) as a sensible default.
+ * For gain goal, targets BMI 23 (upper-normal). For lose, targets BMI 22
+ * (middle-normal). For maintain, uses current weight (already in range check).
+ */
+export function recommendedGoalWeight(
+  heightCm: number,
+  currentWeightKg: number,
+  goal: GoalMode
+): number {
+  if (!heightCm || heightCm <= 0) return currentWeightKg;
+  const heightM = heightCm / 100;
+  let targetBMI: number;
+  if (goal === "gain") {
+    targetBMI = 23; // aim toward upper-normal
+  } else if (goal === "lose") {
+    targetBMI = 22; // aim toward middle-normal
+  } else {
+    // Maintain: keep current weight if BMI already normal, else suggest normal midpoint
+    const currentBMI = calculateBMI(currentWeightKg, heightCm);
+    if (currentBMI >= 18.5 && currentBMI <= 24.9) return Math.round(currentWeightKg);
+    targetBMI = 22;
+  }
+  return Math.round(targetBMI * heightM * heightM);
+}
+
+/**
+ * Personalized BMR using the Harris-Benedict equation, then multiplied by
+ * a moderate activity factor (1.55) to estimate daily maintenance calories.
+ * Falls back to the simple weight-multiplier if height is missing.
+ */
+export function personalizedMaintenanceCalories(
+  weightKg: number,
+  heightCm: number,
+  gender: "male" | "female" | "other"
+): number {
+  if (!heightCm || heightCm <= 0) return estimateMaintenanceCalories(weightKg);
+  // Harris-Benedict revised equation
+  let bmr: number;
+  if (gender === "female") {
+    bmr = 447.593 + 9.247 * weightKg + 3.098 * heightCm - 4.330 * 30; // assume avg age 30
+  } else {
+    bmr = 88.362 + 13.397 * weightKg + 4.799 * heightCm - 5.677 * 30;
+  }
+  // Moderate activity multiplier (1.55 = light–moderate exercise most days)
+  const maintenance = bmr * 1.55;
+  return Math.round(maintenance / 50) * 50; // round to nearest 50 kcal
+}
+
+/**
+ * Personalized daily calorie target based on full profile.
+ * Uses goal weight to drive the calculation for a more relevant target.
+ */
+export function personalizedCalorieGoal(
+  currentWeightKg: number,
+  goalWeightKg: number,
+  heightCm: number,
+  gender: "male" | "female" | "other",
+  goal: GoalMode
+): number {
+  // Use an average of current and goal weight to orient the target
+  const refWeight = (currentWeightKg + goalWeightKg) / 2;
+  const maintenance = personalizedMaintenanceCalories(refWeight, heightCm, gender);
+  if (goal === "gain") return maintenance + 500;
+  if (goal === "lose") return Math.max(1200, maintenance - 500);
+  return maintenance;
+}
+
+/**
+ * Personalized daily protein target based on body weight and goal.
+ * - Gain: 1.8g per kg of goal body weight (muscle building surplus)
+ * - Lose: 2.0g per kg of current body weight (preserve lean mass in deficit)
+ * - Maintain: 1.6g per kg of current body weight
+ */
+export function personalizedProteinGoal(
+  currentWeightKg: number,
+  goalWeightKg: number,
+  goal: GoalMode
+): number {
+  let protein: number;
+  if (goal === "gain") {
+    protein = goalWeightKg * 1.8;
+  } else if (goal === "lose") {
+    protein = currentWeightKg * 2.0;
+  } else {
+    protein = currentWeightKg * 1.6;
+  }
+  return Math.round(protein / 5) * 5; // round to nearest 5g
+}
+
 /**
  * Gently flags when the selected goal mode contradicts the stored goal
  * weight relative to the current weight — e.g. "Lose Weight" while the goal

@@ -25,15 +25,22 @@ export function EditableNumber({
   onChange: (v: number) => void;
   min?: number;
   max?: number;
-  /** How many decimal places to round a typed value to. */
   decimals?: number;
   className?: string;
   inputClassName?: string;
   ariaLabel?: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(value));
+  const [draft, setDraft] = useState(value > 0 ? String(value) : "");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Keep draft in sync with incoming value changes (e.g. stepper buttons
+  // changing the value while the field is not being edited).
+  useEffect(() => {
+    if (!editing) {
+      setDraft(value > 0 ? String(value) : "");
+    }
+  }, [value, editing]);
 
   useEffect(() => {
     if (editing) {
@@ -43,17 +50,34 @@ export function EditableNumber({
   }, [editing]);
 
   const startEditing = () => {
-    setDraft(String(value));
+    setDraft(value > 0 ? String(value) : "");
     setEditing(true);
   };
 
   const commit = () => {
     setEditing(false);
+
+    if (draft.trim() === "") {
+      onChange(0);
+      return;
+    }
+
     const parsed = parseFloat(draft);
+
     if (!Number.isFinite(parsed)) return;
-    let v = Math.round(parsed * 10 ** decimals) / 10 ** decimals;
-    if (min !== undefined) v = Math.max(min, v);
-    if (max !== undefined) v = Math.min(max, v);
+
+    let v =
+      Math.round(parsed * 10 ** decimals) /
+      10 ** decimals;
+
+    if (min !== undefined) {
+      v = Math.max(min, v);
+    }
+
+    if (max !== undefined) {
+      v = Math.min(max, v);
+    }
+
     onChange(v);
   };
 
@@ -91,10 +115,17 @@ export function EditableNumber({
     <button
       type="button"
       onClick={startEditing}
-      aria-label={ariaLabel ? `${ariaLabel}, tap to type a value` : "Tap to type a value"}
-      className={cn("tabular-nums cursor-text", className)}
+      aria-label={
+        ariaLabel
+          ? `${ariaLabel}, tap to type a value`
+          : "Tap to type a value"
+      }
+      className={cn(
+        "tabular-nums cursor-text",
+        className
+      )}
     >
-      {value}
+      {value > 0 ? value : "-"}
     </button>
   );
 }

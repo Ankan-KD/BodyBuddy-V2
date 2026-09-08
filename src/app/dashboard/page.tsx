@@ -102,9 +102,8 @@ export default function DashboardPage() {
   const isViewToday = viewDay.date === today.date;
   const viewLabel = relativeDayLabel(viewDay.date);
 
-  useEffect(() => {
-    if (ready && !settings.onboarded) router.replace("/onboarding");
-  }, [ready, settings.onboarded, router]);
+  // Onboarding redirect is now handled globally in AppShell > OnboardingGate,
+  // so no per-page redirect is needed here.
 
   const milestoneStatuses = useMemo(
     () => computeMilestoneStatuses(foods, history, today, weights, settings),
@@ -220,12 +219,9 @@ export default function DashboardPage() {
   const status = progressStatus(settings.goalMode, totals.calories, settings.calorieGoal);
   const statusLabel = progressStatusLabel(status);
 
-  // While the store is still loading, or we're about to bounce to
-  // /onboarding (see the effect above), show a small loading indicator
-  // instead of a blank white screen — a brand-new user's data fetch (and
-  // the resulting onboarding check) can take a moment, and a silent blank
-  // page reads as a stuck/broken app rather than "still loading".
-  if (!ready || !settings.onboarded) {
+  // AppShell > OnboardingGate already blocks this page until ready=true and
+  // onboarded=true. The guard below is a lightweight safety net only.
+  if (!ready) {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center gap-3">
         <AppIcon className="h-14 w-14 rounded-2xl shadow-glow-nova animate-pulse-glow" />
