@@ -78,9 +78,16 @@ export function computeMilestoneStatuses(
 
   let goalReached = false;
   if (settings.goalWeightKg > 0 && latestWeight !== undefined) {
-    if (settings.goalMode === "gain") goalReached = latestWeight >= settings.goalWeightKg;
-    else if (settings.goalMode === "lose") goalReached = latestWeight <= settings.goalWeightKg;
-    else goalReached = Math.abs(latestWeight - settings.goalWeightKg) <= MAINTAIN_GOAL_TOLERANCE_KG;
+    // Only count goal_reached if the user has been tracking for more than one
+    // day. This prevents the milestone from firing immediately on first login
+    // when the onboarding weight happens to already meet the computed goal weight
+    // (e.g. a "maintain" user whose current weight equals their suggested goal).
+    const hasHistory = trackedCount > 1 || weights.length > 1;
+    if (hasHistory) {
+      if (settings.goalMode === "gain") goalReached = latestWeight >= settings.goalWeightKg;
+      else if (settings.goalMode === "lose") goalReached = latestWeight <= settings.goalWeightKg;
+      else goalReached = Math.abs(latestWeight - settings.goalWeightKg) <= MAINTAIN_GOAL_TOLERANCE_KG;
+    }
   }
 
   const achievedMap: Record<MilestoneKey, boolean> = {

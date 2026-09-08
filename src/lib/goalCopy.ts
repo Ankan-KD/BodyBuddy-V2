@@ -251,7 +251,8 @@ export function calorieGoalWarning(weightKg: number, goal: GoalMode, calorieGoal
 export type ProgressStatus = "good" | "success" | "warning" | "adjust";
 
 export function progressStatus(goal: GoalMode, calories: number, calorieGoal: number): ProgressStatus {
-  if (calorieGoal <= 0) return "good";
+  // Nothing logged yet — don't show any warning/adjustment badge on a fresh day.
+  if (calorieGoal <= 0 || calories <= 0) return "good";
   const ratio = calories / calorieGoal;
   if (goal === "lose") return ratio > 1 ? "warning" : "good";
   if (goal === "maintain") return ratio >= 0.92 && ratio <= 1.08 ? "success" : "adjust";
