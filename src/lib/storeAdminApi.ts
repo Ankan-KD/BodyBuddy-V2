@@ -443,6 +443,15 @@ export async function adminFetchOrderById(
 }
 
 // ── Admin Order Status Update ─────────────────────────────────────────────
+//
+// Calls the server-side API route so that:
+//   1. The status update is authenticated and admin-verified server-side.
+//   2. The server can read the PREVIOUS status before writing the new one.
+//   3. A compare-and-swap guard prevents duplicate DB writes.
+//   4. The status-update email is sent AFTER the DB write succeeds —
+//      never before, never on a no-op (same status submitted twice).
+//
+// Returns null on success, or an error string on failure.
 
 export async function adminUpdateOrderStatus(
   orderId: string,
@@ -450,12 +459,32 @@ export async function adminUpdateOrderStatus(
 ): Promise<string | null> {
   if (!supabase) return "No database connection";
 
-  const { error } = await supabase
-    .from("store_orders")
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq("id", orderId);
+  // Get the current session's access token to authenticate the API call.
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) return "Not authenticated — please sign in again.";
 
-  return error ? error.message : null;
+  try {
+    const res = await fetch("/api/store/admin/update-order-status", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ orderId, newStatus: status }),
+    });
+
+    const json = await res.json().catch(() => ({ ok: false, error: "Unexpected server response." }));
+
+    if (!res.ok || !json.ok) {
+      return json.error ?? `Server error (${res.status}).`;
+    }
+
+    return null; // success
+  } catch (err) {
+    console.error("[storeAdminApi] adminUpdateOrderStatus fetch threw:", err);
+    return "Network error — please try again.";
+  }
 }
 
 // ── Admin Inventory ────────────────────────────────────────────────────────

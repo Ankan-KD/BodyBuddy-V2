@@ -12,6 +12,17 @@ import { formatPriceINR } from "./storeTypes";
 // stay accurate even if the product catalogue or user profile later
 // changes. Never contains Razorpay secrets — only the IDs stored on the
 // order record itself, which are the customer's own payment references.
+//
+// ISOMORPHIC BY DESIGN: buildReceiptPdf() has no "use client" directive
+// and only touches jsPDF/jspdf-autotable (pure JS, no DOM) plus
+// loadFontAsBase64() below, which branches on runtime rather than on
+// caller. That means this exact function can run:
+//   - in the browser, for the "Download Receipt" button, and
+//   - on the server (API routes), for the order-confirmation email
+// and produce byte-for-byte the same PDF either way. Do not add any
+// browser-only API (window, document, Blob, etc.) directly inside
+// buildReceiptPdf — keep that isolated to downloadReceiptPdf() below,
+// which stays browser-only on purpose.
 // ════════════════════════════════════════════════════════════════════════
 
 // ── Page geometry ────────────────────────────────────────────────────────
@@ -55,20 +66,59 @@ function fmtDateShort(iso: string): string {
   });
 }
 
+// Loads a font file (from /public/fonts) as base64, the same way regardless
+// of caller: browser code fetches it over HTTP; server code (no `window`,
+// e.g. an API route building the email attachment) reads the identical
+// file straight off disk instead of making a loopback HTTP request. Either
+// path yields the exact same font bytes, so the rendered PDF is identical.
+//
+// PERF: font bytes never change at runtime, but this used to be re-read
+// from disk (or re-fetched over HTTP in the browser) on every single PDF
+// build — including once per admin order-status update. Cache the
+// resulting base64 string per URL, and cache the in-flight promise too so
+// concurrent buildReceiptPdf() calls racing on a cold cache share one
+// read instead of issuing duplicate disk reads / fetches.
+const fontBase64Cache = new Map<string, Promise<string>>();
+
 async function loadFontAsBase64(url: string): Promise<string> {
-  const response = await fetch(url);
-  const buffer = await response.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
+  const cached = fontBase64Cache.get(url);
+  if (cached) return cached;
 
-  let binary = "";
+  const promise = (async () => {
+    let bytes: Uint8Array;
 
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(i, Math.min(i + 0x8000, bytes.length))
-    );
-  }
+    if (typeof window === "undefined") {
+      // Server-side (Node): "url" is a public-relative path like
+      // "/fonts/NotoSans-Regular.ttf" — resolve it against the Next.js
+      // project's /public directory, which is what that path serves in
+      // the browser too.
+      const { readFile } = await import("fs/promises");
+      const path = await import("path");
+      const filePath = path.join(process.cwd(), "public", url);
+      bytes = new Uint8Array(await readFile(filePath));
+    } else {
+      const response = await fetch(url);
+      const buffer = await response.arrayBuffer();
+      bytes = new Uint8Array(buffer);
+    }
 
-  return btoa(binary);
+    let binary = "";
+
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(
+        ...bytes.subarray(i, Math.min(i + 0x8000, bytes.length))
+      );
+    }
+
+    return btoa(binary);
+  })();
+
+  // If the read/fetch fails, don't poison the cache with a rejected
+  // promise — let the next call retry from scratch.
+  promise.catch(() => fontBase64Cache.delete(url));
+
+  fontBase64Cache.set(url, promise);
+  return promise;
 }
 export async function buildReceiptPdf(order: StoreOrder): Promise<jsPDF> {
 const doc = new jsPDF({ unit: "pt", format: "a4" });

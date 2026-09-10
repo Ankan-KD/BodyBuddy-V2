@@ -54,19 +54,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A complete delivery address is required." }, { status: 400 });
   }
 
-  // ── 1. Load the user's cart, joined with live product/variant data ────
-  const { data: cartRows, error: cartError } = await supabaseAdmin
-    .from("store_cart_items")
-    .select(
-      `id, quantity, product_id, variant_id,
-       store_product_variants ( id, sku, name, size_label, flavour, price_paise, compare_price_paise, stock_quantity, availability, images,
-         store_products ( id, name, images, published, availability ) )`
-    )
-    .eq("user_id", user.id);
+  // ── 1. Load the user's cart (joined with live product/variant data)
+  //      and generate the order number in parallel — neither depends on
+  //      the other's result, so running them sequentially was just
+  //      adding two round-trips' worth of latency for nothing.
+  const [{ data: cartRows, error: cartError }, { data: numData, error: numError }] = await Promise.all([
+    supabaseAdmin
+      .from("store_cart_items")
+      .select(
+        `id, quantity, product_id, variant_id,
+         store_product_variants ( id, sku, name, size_label, flavour, price_paise, compare_price_paise, stock_quantity, availability, images,
+           store_products ( id, name, images, published, availability ) )`
+      )
+      .eq("user_id", user.id),
+    supabaseAdmin.rpc("generate_order_number"),
+  ]);
 
   if (cartError) {
     return NextResponse.json({ error: `Could not load your cart: ${cartError.message}` }, { status: 500 });
   }
+  if (numError) {
+    return NextResponse.json({ error: `Could not generate an order number: ${numError.message}` }, { status: 500 });
+  }
+  const orderNumber = numData as string;
 
   type CartJoinRow = {
     id: string;
@@ -135,13 +145,6 @@ export async function POST(request: Request) {
   if (totalPaise < 100) {
     return NextResponse.json({ error: "Order total must be at least ₹1." }, { status: 400 });
   }
-
-  // ── 4. Order number ────────────────────────────────────────────────
-  const { data: numData, error: numError } = await supabaseAdmin.rpc("generate_order_number");
-  if (numError) {
-    return NextResponse.json({ error: `Could not generate an order number: ${numError.message}` }, { status: 500 });
-  }
-  const orderNumber = numData as string;
 
   // ── 5. Insert the order row (payment_status starts pending) ─────────
   const { data: orderData, error: orderError } = await supabaseAdmin

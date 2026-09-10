@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { verifyWebhookSignature, fetchRazorpayPayment, normalizePaymentMethod } from "@/lib/razorpayServer";
+import { orderFromRow, type OrderRow } from "@/lib/orderTypes";
+import { sendOrderConfirmationEmail } from "@/lib/orderConfirmationEmail";
 
 // ════════════════════════════════════════════════════════════════════════
 // BB Store — Razorpay Webhook
@@ -68,7 +70,11 @@ export async function POST(request: Request) {
 
   const method = normalizePaymentMethod(payment.method ?? (await fetchRazorpayPayment(payment.id)).payment?.method);
 
-  await supabaseAdmin
+  // The `.neq("payment_status", "paid")` guard means at most one of
+  // {this webhook delivery, the client's verify-payment call} can ever
+  // get a row back here for a given order — `.select().single()` lets us
+  // tell whether THIS request is the one that performed the transition.
+  const { data: updated, error: updateError } = await supabaseAdmin
     .from("store_orders")
     .update({
       payment_status: "paid",
@@ -78,9 +84,25 @@ export async function POST(request: Request) {
       payment_error: null,
     })
     .eq("id", order.id)
-    .neq("payment_status", "paid");
+    .neq("payment_status", "paid")
+    .select("*, store_order_items(*)")
+    .single();
 
   await supabaseAdmin.from("store_cart_items").delete().eq("user_id", order.user_id);
+
+  // Only the request that actually flipped payment_status to "paid" owns
+  // sending the confirmation email — if verify-payment already won the
+  // race, `updated` is null/errored here and we skip, so the customer
+  // gets exactly one email either way. sendOrderConfirmationEmail() never
+  // throws, so a mailer failure can never affect this webhook's ack.
+  //
+  // PERF: run it via `after()` so Razorpay gets its ack immediately
+  // instead of waiting on PDF generation + SMTP send (Razorpay retries
+  // webhooks that are slow to ack, so this also avoids duplicate deliveries).
+  if (!updateError && updated) {
+    const confirmedOrder = orderFromRow(updated as OrderRow);
+    after(() => sendOrderConfirmationEmail(confirmedOrder));
+  }
 
   return NextResponse.json({ ok: true });
 }

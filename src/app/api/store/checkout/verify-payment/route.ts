@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { supabaseAdmin, getUserFromRequest } from "@/lib/supabaseAdmin";
 import { verifyPaymentSignature, fetchRazorpayPayment, normalizePaymentMethod } from "@/lib/razorpayServer";
 import { orderFromRow, type OrderRow } from "@/lib/orderTypes";
+import { sendOrderConfirmationEmail } from "@/lib/orderConfirmationEmail";
 
 // ════════════════════════════════════════════════════════════════════════
 // BB Store — Verify Razorpay Payment
@@ -112,5 +113,21 @@ export async function POST(request: Request) {
   // Payment confirmed — now safe to clear the cart.
   await supabaseAdmin.from("store_cart_items").delete().eq("user_id", user.id);
 
-  return NextResponse.json({ verified: true, order: orderFromRow(updated as OrderRow) });
+  const confirmedOrder = orderFromRow(updated as OrderRow);
+
+  // This request is the one whose update actually flipped the order to
+  // "paid" (the `.neq("payment_status", "paid")` guard above means only
+  // one of {this route, the webhook} can ever land here for a given
+  // order), so it — and only it — owns sending the confirmation email.
+  //
+  // PERF: building the receipt PDF + sending it over Gmail SMTP can take
+  // 20+ seconds. The payment is already verified and saved at this point,
+  // so there's no reason to make the customer's browser wait on the
+  // email too — `after()` schedules it to run once the response has
+  // been sent, instead of blocking this request.
+  // sendOrderConfirmationEmail() never throws, so this can't surface as
+  // an unhandled rejection.
+  after(() => sendOrderConfirmationEmail(confirmedOrder));
+
+  return NextResponse.json({ verified: true, order: confirmedOrder });
 }
