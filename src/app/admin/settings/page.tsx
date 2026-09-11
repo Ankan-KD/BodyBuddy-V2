@@ -447,7 +447,7 @@ export default function AdminSettingsPage() {
   return (
     <div style={{ minHeight: "100%", background: "var(--a-bg)" }}>
       {toast && (
-        <div style={{ position: "fixed", top: 16, right: 16, zIndex: 100, padding: "10px 16px", borderRadius: "var(--a-radius-md)", fontSize: 13, fontWeight: 500, background: toast.type === "success" ? "var(--a-success-bg)" : "var(--a-danger-bg)", color: toast.type === "success" ? "var(--a-success-text)" : "var(--a-danger-text)", border: `1px solid ${toast.type === "success" ? "var(--a-success-border)" : "var(--a-danger-border)"}`, boxShadow: "var(--a-shadow-md)" }}>
+        <div style={{ position: "fixed", top: 16, right: 16, zIndex: 100, padding: "10px 16px", borderRadius: "var(--a-radius-md)", fontSize: 13, fontWeight: 500, maxWidth: "calc(100vw - 32px)", background: toast.type === "success" ? "var(--a-success-bg)" : "var(--a-danger-bg)", color: toast.type === "success" ? "var(--a-success-text)" : "var(--a-danger-text)", border: `1px solid ${toast.type === "success" ? "var(--a-success-border)" : "var(--a-danger-border)"}`, boxShadow: "var(--a-shadow-md)" }}>
           {toast.msg}
         </div>
       )}
@@ -629,7 +629,7 @@ export default function AdminSettingsPage() {
               <label className="a-form-label">Address Line 2</label>
               <input className="a-form-input" value={returnLine2} onChange={e => setReturnLine2(e.target.value)} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="a-grid-2" style={{ gap: 12 }}>
               <div className="a-form-field">
                 <label className="a-form-label">City</label>
                 <input className="a-form-input" value={returnCity} onChange={e => setReturnCity(e.target.value)} />
@@ -639,7 +639,7 @@ export default function AdminSettingsPage() {
                 <input className="a-form-input" value={returnState} onChange={e => setReturnState(e.target.value)} />
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="a-grid-2" style={{ gap: 12 }}>
               <div className="a-form-field">
                 <label className="a-form-label">Pincode</label>
                 <input className="a-form-input" value={returnPincode} onChange={e => setReturnPincode(e.target.value)} />

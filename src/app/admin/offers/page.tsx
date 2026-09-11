@@ -316,7 +316,7 @@ export default function AdminOffersPage() {
   return (
     <div style={{minHeight:"100%",background:"var(--a-bg)"}}>
       {toast&&(
-        <div style={{position:"fixed",top:16,right:16,zIndex:100,padding:"10px 16px",borderRadius:"var(--a-radius-md)",fontSize:13,fontWeight:500,background:toast.type==="success"?"var(--a-success-bg)":"var(--a-danger-bg)",color:toast.type==="success"?"var(--a-success-text)":"var(--a-danger-text)",border:`1px solid ${toast.type==="success"?"var(--a-success-border)":"var(--a-danger-border)"}`,boxShadow:"var(--a-shadow-md)"}}>
+        <div style={{position:"fixed",top:16,right:16,zIndex:100,padding:"10px 16px",borderRadius:"var(--a-radius-md)",fontSize:13,fontWeight:500,maxWidth:"calc(100vw - 32px)",background:toast.type==="success"?"var(--a-success-bg)":"var(--a-danger-bg)",color:toast.type==="success"?"var(--a-success-text)":"var(--a-danger-text)",border:`1px solid ${toast.type==="success"?"var(--a-success-border)":"var(--a-danger-border)"}`,boxShadow:"var(--a-shadow-md)"}}>
           {toast.msg}
         </div>
       )}
@@ -348,7 +348,7 @@ export default function AdminOffersPage() {
 
       <div style={{padding:24}}>
         {/* Stats */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
+        <div className="a-grid-3" style={{gap:12,marginBottom:20}}>
           {[
             {label:"Total Offers",value:offers.length,icon:<Percent style={{width:16,height:16}} />,cls:"a-stat-blue",icls:"a-stat-icon-blue"},
             {label:"Active Now",value:activeCount,icon:<Check style={{width:16,height:16}} />,cls:"a-stat-green",icls:"a-stat-icon-green"},

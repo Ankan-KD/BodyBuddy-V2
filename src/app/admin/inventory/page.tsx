@@ -245,7 +245,7 @@ export default function AdminInventoryPage() {
 
       {/* ── Summary tiles ── */}
       {!loading && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+        <div className="a-grid-3" style={{ gap: 12, marginBottom: 20 }}>
           <div className="a-stat-card">
             <div className="a-stat-icon" style={{ background: "rgba(59,130,246,0.12)" }}>
               <Warehouse style={{ width: 16, height: 16, color: "var(--a-stat-blue)" }} />

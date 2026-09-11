@@ -503,6 +503,8 @@ export interface InventoryVariantRow {
   productAvailability: string;
   /** Whether the parent product is published (visible to customers). */
   productPublished: boolean;
+  /** Variant's own image if set, else the parent product's first image. */
+  imageUrl: string | null;
 }
 
 export async function adminFetchInventory(opts: {
@@ -519,7 +521,7 @@ export async function adminFetchInventory(opts: {
   let query = supabase
     .from("store_product_variants")
     .select(
-      "id, sku, name, size_label, flavour, stock_quantity, low_stock_threshold, availability, product_id, store_products!inner(id, name, availability, published)",
+      "id, sku, name, size_label, flavour, stock_quantity, low_stock_threshold, availability, product_id, images, store_products!inner(id, name, availability, published, images)",
       { count: "exact" }
     )
     .order("stock_quantity", { ascending: true });
@@ -554,6 +556,7 @@ export async function adminFetchInventory(opts: {
     productName: r.store_products?.name ?? "",
     productAvailability: r.store_products?.availability ?? "",
     productPublished: r.store_products?.published ?? false,
+    imageUrl: (r.images?.[0] as string | undefined) ?? (r.store_products?.images?.[0] as string | undefined) ?? null,
   }));
 
   if (lowStockOnly) {

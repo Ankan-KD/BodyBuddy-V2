@@ -67,7 +67,7 @@ export function ImageUploader({ images, onChange, productSlug }: Props) {
     <div className="space-y-3">
       {/* Image grid */}
       {images.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+        <div className="a-grid-4" style={{ gap: 8 }}>
           {images.map((url, i) => (
             <div key={i} className="group" style={{ position: "relative", aspectRatio: "1", borderRadius: "var(--a-radius)", overflow: "hidden", background: "var(--a-surface-2)", border: "1px solid var(--a-border)" }}>
               <img src={url} alt={`Product image ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />

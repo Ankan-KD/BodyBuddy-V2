@@ -255,7 +255,7 @@ function ProductDetailView({
           {/* Product Information */}
           <div className="a-card" style={{ padding: "12px 14px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>Product Information</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div className="a-grid-2" style={{ gap: 10 }}>
               <div>
                 <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3 }}>Product Name</div>
                 <div style={{ fontSize: 12 }}>{product.productName}</div>
@@ -293,7 +293,7 @@ function ProductDetailView({
                 ))}
               </select>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div className="a-grid-2" style={{ gap: 8 }}>
                 <div style={{ background: "var(--a-surface-2)", border: "1px solid var(--a-border)", borderRadius: "var(--a-radius)", padding: "8px 10px" }}>
                   <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}>
                     <IndianRupee style={{ width: 10, height: 10 }} /> Price
@@ -347,7 +347,7 @@ function ProductDetailView({
                   <div style={{ fontSize: 10, color: "var(--a-text-3)", fontWeight: 600, marginBottom: 6 }}>
                     Nutrition {nutrition.servingSizeLabel ? `(per ${nutrition.servingSizeLabel})` : ""}
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                  <div className="a-grid-4" style={{ gap: 6 }}>
                     {[
                       { label: "Calories", val: nutrition.calories, unit: "kcal" },
                       { label: "Protein",  val: nutrition.proteinG, unit: "g" },
@@ -537,7 +537,7 @@ function DetailPanel({
           {/* Classification */}
           <div className="a-card" style={{ padding: "12px 14px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>Classification</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="a-grid-2" style={{ gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: "var(--a-text-3)", marginBottom: 4, fontWeight: 600 }}>Product Group</div>
                 <SelectCell
@@ -590,7 +590,7 @@ function DetailPanel({
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--a-text-3)", marginBottom: 10, letterSpacing: "0.05em" }}>
                 Nutrition {product.servingSizeLabel ? `(per ${product.servingSizeLabel})` : ""}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+              <div className="a-grid-4" style={{ gap: 6 }}>
                 {[
                   { label: "Calories", val: product.calories, unit: "kcal" },
                   { label: "Protein",  val: product.proteinG, unit: "g" },
@@ -694,7 +694,7 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: () =
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", padding: 16 }}>
-      <div style={{ background: "var(--a-surface)", borderRadius: "var(--a-radius-lg)", border: "1px solid var(--a-border)", width: "100%", maxWidth: 480, padding: 24 }}>
+      <div style={{ background: "var(--a-surface)", borderRadius: "var(--a-radius-lg)", border: "1px solid var(--a-border)", width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", padding: 24, boxSizing: "border-box" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Bulk Import from CSV</div>
           <button onClick={onClose} className="a-btn a-btn-ghost a-btn-icon a-btn-sm"><X style={{ width: 14, height: 14 }} /></button>

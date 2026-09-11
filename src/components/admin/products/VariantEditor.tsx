@@ -102,7 +102,7 @@ function VariantRow({ variant, index, onChange, onDelete, onSetDefault, canDelet
 
       {/* Fields */}
       {expanded && (
-        <div style={{ padding: "12px 14px 14px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, background: "var(--a-surface)" }}>
+        <div className="a-grid-2" style={{ padding: "12px 14px 14px", gap: 12, background: "var(--a-surface)" }}>
           <Field label="SKU *" required>
             <input
               required

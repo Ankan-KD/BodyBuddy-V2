@@ -748,6 +748,192 @@
   margin-top: 2px;
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+   DASHBOARD HERO — revenue-led stat hierarchy (dashboard page only)
+   ══════════════════════════════════════════════════════════════════════ */
+.a-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.15fr) 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+  align-items: stretch;
+}
+
+.a-revenue-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--a-radius-lg);
+  padding: 24px 26px 22px;
+  background: linear-gradient(135deg, #0A1830 0%, #102C5E 50%, #1D4ED8 100%);
+  color: #F3F6FC;
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--a-shadow-md);
+  min-height: 176px;
+  box-sizing: border-box;
+  transition: box-shadow 0.15s, transform 0.12s;
+}
+
+.a-revenue-hero:hover {
+  box-shadow: 0 10px 24px rgba(10, 24, 48, 0.35), var(--a-shadow-md);
+  transform: translateY(-1px);
+}
+
+.a-revenue-hero::after {
+  content: "";
+  position: absolute;
+  top: -70px;
+  right: -70px;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.10), transparent 70%);
+  pointer-events: none;
+}
+
+.a-revenue-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.a-revenue-hero-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(243, 246, 252, 0.75);
+}
+
+.a-revenue-hero-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--a-radius);
+  background: rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.a-revenue-hero-value {
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 16px 0 8px;
+  position: relative;
+  z-index: 1;
+  color: #fff;
+}
+
+.a-revenue-hero-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+}
+
+.a-revenue-hero-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.a-revenue-hero-delta.up   { color: #86EFAC; }
+.a-revenue-hero-delta.down { color: #FCA5A5; }
+.a-revenue-hero-delta.flat { color: rgba(243, 246, 252, 0.7); }
+
+.a-revenue-hero-period {
+  font-size: 12px;
+  color: rgba(243, 246, 252, 0.62);
+}
+
+/* Secondary stat cluster — quieter than the hero, 2x2 */
+.a-hero-secondary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.a-mini-stat {
+  background: var(--a-surface);
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius-md);
+  padding: 14px 14px 12px;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+  box-sizing: border-box;
+}
+
+.a-mini-stat:hover {
+  border-color: var(--a-primary);
+  box-shadow: var(--a-shadow-sm);
+  transform: translateY(-1px);
+}
+
+.a-mini-stat-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.a-mini-stat-icon {
+  width: 25px;
+  height: 25px;
+  border-radius: var(--a-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.a-mini-stat-icon-blue   { background: #DBEAFE; color: var(--a-stat-blue);  }
+.a-mini-stat-icon-green  { background: #DCFCE7; color: var(--a-stat-green); }
+.a-mini-stat-icon-amber  { background: #FEF3C7; color: var(--a-stat-amber); }
+.a-mini-stat-icon-red    { background: #FEE2E2; color: var(--a-stat-red);   }
+
+.a-mini-stat-value {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--a-text);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.a-mini-stat-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--a-text-3);
+}
+
+.a-mini-stat-sub {
+  font-size: 10.5px;
+  color: var(--a-text-4);
+  margin-top: -4px;
+}
+
+@media (max-width: 900px) {
+  .a-hero-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 420px) {
+  .a-hero-secondary { grid-template-columns: 1fr; }
+}
+
 /* Legacy a-stat-grid (used in other pages) */
 .a-stat-grid {
   display: grid;
@@ -780,6 +966,116 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+/* Revenue trend (wide) + sales overview (narrow) */
+.a-dash-row-primary {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: stretch;
+}
+
+/* Top products + inventory status, side by side */
+.a-dash-row-secondary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .a-dash-row-primary,
+  .a-dash-row-secondary {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Date-range segmented control */
+.a-range-select {
+  display: inline-flex;
+  align-items: center;
+  background: var(--a-surface-2);
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  padding: 3px;
+  gap: 2px;
+}
+
+.a-range-option {
+  border: none;
+  background: transparent;
+  color: var(--a-text-3);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: calc(var(--a-radius) - 2px);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+  white-space: nowrap;
+}
+
+.a-range-option:hover { color: var(--a-text); }
+
+.a-range-option.active {
+  background: var(--a-surface);
+  color: var(--a-primary-text);
+  box-shadow: var(--a-shadow-xs);
+}
+
+/* Comparison delta pill on stat cards */
+.a-stat-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.a-stat-delta.up   { color: var(--a-success); }
+.a-stat-delta.down { color: var(--a-danger); }
+.a-stat-delta.flat { color: var(--a-text-4); }
+
+/* Inventory status rows */
+.a-inv-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--a-border);
+}
+
+.a-inv-row:last-child { border-bottom: none; padding-bottom: 0; }
+.a-inv-row:first-child { padding-top: 0; }
+
+.a-inv-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--a-radius);
+  background: var(--a-surface-2);
+  border: 1px solid var(--a-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.a-inv-bar-track {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--a-surface-2);
+  overflow: hidden;
+  margin-top: 5px;
+}
+
+.a-inv-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s ease;
 }
 
 /* Revenue banner — understated, not gradient-loud */
@@ -1003,7 +1299,10 @@
 /* ══════════════════════════════════════════════════════════════════════
    TABLE
    ══════════════════════════════════════════════════════════════════════ */
-.a-table-wrap { overflow-x: auto; }
+.a-table-wrap {
+  overflow-x: auto;
+  position: relative;
+}
 
 .a-table {
   width: 100%;
@@ -1506,6 +1805,37 @@ select.a-form-input,
 .mb-4 { margin-bottom: 16px; }
 
 /* ══════════════════════════════════════════════════════════════════════
+   RESPONSIVE GRID HELPERS
+   Generic, reusable multi-column grid classes so page/component code
+   doesn't hardcode `gridTemplateColumns` inline (inline styles can't
+   respond to a media query, which was the root cause of most of the
+   admin's mobile-layout breakage). Gap is still set per-instance via
+   inline `style={{ gap }}` since that doesn't need to change per
+   breakpoint — only the column count does.
+   ══════════════════════════════════════════════════════════════════════ */
+.a-grid-2           { display: grid; grid-template-columns: 1fr 1fr; }
+.a-grid-3           { display: grid; grid-template-columns: repeat(3, 1fr); }
+.a-grid-4           { display: grid; grid-template-columns: repeat(4, 1fr); }
+.a-grid-sidebar-340 { display: grid; grid-template-columns: 1fr 340px; } /* order detail: main column + side panel */
+.a-grid-thumb-148   { display: grid; grid-template-columns: 148px 1fr; } /* product image + fields */
+.a-grid-suffix-120  { display: grid; grid-template-columns: 1fr 120px; } /* value + short unit/select */
+.a-grid-suffix-140  { display: grid; grid-template-columns: 1fr 140px; }
+
+@media (max-width: 900px) {
+  .a-grid-sidebar-340 { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .a-grid-3, .a-grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .a-grid-thumb-148    { grid-template-columns: 1fr; justify-items: center; }
+}
+
+@media (max-width: 480px) {
+  .a-grid-2, .a-grid-3, .a-grid-4 { grid-template-columns: 1fr; }
+  .a-grid-suffix-120, .a-grid-suffix-140 { grid-template-columns: 1fr; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    RESPONSIVE
    ══════════════════════════════════════════════════════════════════════ */
 @media (max-width: 1024px) {
@@ -1526,15 +1856,72 @@ select.a-form-input,
 @media (max-width: 900px) {
   .a-stats-grid { grid-template-columns: repeat(2, 1fr); }
   .a-dash-grid  { grid-template-columns: 1fr; }
+  .a-stat-grid  { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 }
 
 @media (max-width: 640px) {
-  .a-page           { padding: 16px 16px 32px; }
-  .a-stats-grid     { grid-template-columns: 1fr 1fr; }
-  .a-form-actions   { margin: 0 -16px -32px; padding: 10px 16px; }
-  .a-row-actions    { min-width: unset; }
+  .a-page              { padding: 12px 12px 28px; }
+  .a-main              { padding: 14px; }
+  .a-stats-grid        { grid-template-columns: 1fr 1fr; }
+  .a-form-actions      { margin: 0 -16px -32px; padding: 10px 16px; flex-wrap: wrap; }
+  .a-form-actions .a-btn { flex: 1 1 auto; }
+  .a-row-actions       { min-width: unset; }
+
+  /* Page header: title stays full-width, action buttons wrap onto their
+     own row and stretch to fill it instead of clipping/overflowing. */
+  .a-page-header       { gap: 10px; }
+  .a-page-header > *:last-child:not(.a-page-title-group):not(button):not(a) {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .a-page-title        { font-size: 19px; }
+
+  /* Filter bar: search box takes its own full-width row, selects/buttons
+     share the row below instead of squeezing into one unreadable line. */
+  .a-filter-bar        { padding: 10px; }
+  .a-search-wrap       { flex-basis: 100%; }
+  .a-filter-select     { flex: 1 1 auto; }
+
+  .a-card-header       { flex-wrap: wrap; }
+  .a-card-body         { padding: 14px; }
+
+  /* Tables: keep them horizontally scrollable (not squished/broken) and
+     make that scrollability visually obvious with rounded, contained
+     edges instead of a table bleeding off the card. A subtle right-edge
+     fade + a slightly bolder scrollbar signal "there's more to the
+     right" — since on a phone there's no hover/cursor affordance to
+     tell someone a wide table scrolls at all. */
+  .a-table-wrap {
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--a-radius-md);
+    scrollbar-width: thin;
+  }
+  .a-table-wrap::after {
+    content: "";
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 24px;
+    pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--a-surface) 92%);
+  }
+  .a-table-wrap::-webkit-scrollbar { height: 6px; }
+  .a-table-wrap::-webkit-scrollbar-thumb { background: var(--a-border); border-radius: 99px; }
+  .a-table th, .a-table td { padding: 9px 10px; }
+
+  .a-pagination        { flex-wrap: wrap; gap: 8px; }
+
+  .a-header            { padding: 0 12px; gap: 8px; }
+  .a-header-crumb-root { display: none; }
+  .a-header-action-label { display: none; }
+  .a-header-action     { padding: 0; width: 32px; height: 32px; justify-content: center; }
+
+  .a-login-card        { padding: 24px 20px; }
+  .a-quick-links       { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {
   .a-stats-grid { grid-template-columns: 1fr; }
+  .a-range-select { width: 100%; overflow-x: auto; }
+  .a-range-option { padding: 6px 9px; }
 }

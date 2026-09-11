@@ -132,9 +132,9 @@ function CustomerDrawer({
         </div>
 
         {/* Stats */}
-        <div style={{
+        <div className="a-grid-2" style={{
           padding: "16px 24px", borderBottom: "1px solid var(--a-border)",
-          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12,
+          gap: 12,
         }}>
           <div style={{
             background: "var(--a-surface-2)", borderRadius: 8,

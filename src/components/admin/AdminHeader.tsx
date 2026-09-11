@@ -56,18 +56,18 @@ export function AdminHeader({ onMenuClick }: Props) {
       </button>
 
       {/* Breadcrumb title */}
-      <div className="a-header-breadcrumb" style={{ flex: 1 }}>
-        <span style={{ color: "var(--a-header-muted)", fontSize: 13, fontWeight: 500 }}>
+      <div className="a-header-breadcrumb" style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+        <span className="a-header-crumb-root" style={{ color: "var(--a-header-muted)", fontSize: 13, fontWeight: 500, flexShrink: 0 }}>
           BB Store
         </span>
-        <ChevronRight style={{ width: 12, height: 12, color: "var(--a-header-muted)", flexShrink: 0 }} />
-        <span style={{ color: "var(--a-header-text)", fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em" }}>
+        <ChevronRight className="a-header-crumb-root" style={{ width: 12, height: 12, color: "var(--a-header-muted)", flexShrink: 0 }} />
+        <span style={{ color: "var(--a-header-text)", fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {section}
         </span>
         {subLabel && (
           <>
             <ChevronRight style={{ width: 12, height: 12, color: "var(--a-header-muted)", flexShrink: 0 }} />
-            <span style={{ color: "var(--a-header-muted)", fontSize: 13, fontWeight: 500 }}>
+            <span style={{ color: "var(--a-header-muted)", fontSize: 13, fontWeight: 500, flexShrink: 0 }}>
               {subLabel}
             </span>
           </>
@@ -75,7 +75,7 @@ export function AdminHeader({ onMenuClick }: Props) {
       </div>
 
       {/* Right controls */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
 
         <Link
           href="/store"
@@ -84,7 +84,7 @@ export function AdminHeader({ onMenuClick }: Props) {
           className="a-header-action"
         >
           <ExternalLink style={{ width: 12, height: 12 }} />
-          View Store
+          <span className="a-header-action-label">View Store</span>
         </Link>
 
         <button className="a-header-icon-btn" aria-label="Notifications">

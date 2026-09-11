@@ -208,12 +208,13 @@ export default function AdminOrderDetailPage() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20, alignItems: "start" }}>
+      <div className="a-grid-sidebar-340" style={{ gap: 20, alignItems: "start" }}>
         {/* ── Left column ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
           {/* Order Items */}
           <Section title="Order Items" icon={Package}>
+            <div className="a-table-wrap">
             <table className="a-table">
               <thead>
                 <tr>
@@ -258,6 +259,7 @@ export default function AdminOrderDetailPage() {
                 ))}
               </tbody>
             </table>
+            </div>
 
             {/* Price breakdown */}
             <div style={{ borderTop: "1px solid var(--a-border)", paddingTop: 16, marginTop: 8 }}>
@@ -289,7 +291,7 @@ export default function AdminOrderDetailPage() {
 
           {/* Customer Info */}
           <Section title="Customer" icon={User}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div className="a-grid-2" style={{ gap: 16 }}>
               <div>
                 <p style={{ fontSize: 11, color: "var(--a-text-muted)", marginBottom: 4 }}>Name</p>
                 <p style={{ fontSize: 13, fontWeight: 500 }}>{order.customerName}</p>

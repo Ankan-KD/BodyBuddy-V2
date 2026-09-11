@@ -160,9 +160,9 @@ export default function AdminOrdersPage() {
         </div>
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Table (desktop) / Cards (mobile) ── */}
       <div className="a-card">
-        <div className="a-table-wrap">
+        <div className="a-table-wrap hidden md:block">
           <table className="a-table">
             <thead>
               <tr>
@@ -241,6 +241,51 @@ export default function AdminOrdersPage() {
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="md:hidden">
+          {loading && (
+            <div className="a-loading">
+              <RefreshCw style={{ width: 16, height: 16 }} className="animate-spin" /> Loading…
+            </div>
+          )}
+
+          {!loading && orders.length === 0 && (
+            <div className="a-empty">
+              <ShoppingBag className="a-empty-icon" />
+              <p className="a-empty-title">No orders found</p>
+              <p className="a-empty-sub">Try adjusting the filters.</p>
+            </div>
+          )}
+
+          {!loading && orders.map((order) => {
+            const itemCount = order.items?.reduce((s, i) => s + i.quantity, 0) ?? 0;
+            return (
+              <Link
+                key={order.id}
+                href={`/admin/orders/${order.id}`}
+                style={{
+                  display: "block", padding: "12px 16px",
+                  borderBottom: "1px solid var(--a-border)", textDecoration: "none", color: "inherit",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{order.orderNumber}</span>
+                  <StatusBadge status={order.status} />
+                </div>
+                <div style={{ fontWeight: 500, fontSize: 13 }}>{order.customerName}</div>
+                <div style={{ fontSize: 11, color: "var(--a-text-muted)", marginBottom: 6 }}>{order.customerEmail}</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 12, color: "var(--a-text-muted)" }}>
+                  <span>
+                    {new Date(order.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                    {" · "}{itemCount} item{itemCount !== 1 ? "s" : ""}
+                  </span>
+                  <span style={{ fontWeight: 600, fontSize: 13, color: "var(--a-text)" }}>{formatPriceINR(order.totalPaise)}</span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
 
         {/* ── Pagination ── */}

@@ -414,7 +414,7 @@ function VariantRow({ variant, index, onChange, onDelete, onSetDefault, canDelet
           {/* Identity group */}
           <div style={{ marginBottom: 14 }}>
             <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.text4, marginBottom: 8 }}>Identity</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div className="a-grid-2" style={{ gap: 10 }}>
               <Field label="SKU" required>
                 <input required type="text" value={variant.sku} onChange={e => up({ sku: e.target.value })}
                   placeholder="WP-1KG-CHOC" className="a-form-input" style={{ fontFamily: "monospace", fontSize: 12 }} />
@@ -449,7 +449,7 @@ function VariantRow({ variant, index, onChange, onDelete, onSetDefault, canDelet
           {/* Pricing group */}
           <div style={{ marginBottom: 14, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
             <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.text4, marginBottom: 8 }}>Pricing</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div className="a-grid-2" style={{ gap: 10 }}>
               <Field label="Price (₹)" required>
                 <div style={{ position: "relative" }}>
                   <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: T.text3, fontSize: 13, pointerEvents: "none" }}>₹</span>
@@ -480,7 +480,7 @@ function VariantRow({ variant, index, onChange, onDelete, onSetDefault, canDelet
           {/* Inventory group */}
           <div style={{ paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
             <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.text4, marginBottom: 8 }}>Inventory</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div className="a-grid-2" style={{ gap: 10 }}>
               <Field label="Stock quantity">
                 <input type="number" min="0" value={variant.stockQuantity}
                   onChange={e => up({ stockQuantity: parseInt(e.target.value || "0") })}
@@ -891,7 +891,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
       )}
 
       {/* ── Two-col layout: nav + content ─────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "148px 1fr", gap: 16, alignItems: "start" }}>
+      <div className="a-grid-thumb-148" style={{ gap: 16, alignItems: "start" }}>
 
         {/* Left nav */}
         <SectionNav activeSection={activeSection} />
@@ -914,7 +914,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             </div>
 
             {/* Row 2: slug + availability */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <div className="a-grid-2" style={{ gap: 10, marginBottom: 12 }}>
               <Field label="URL slug" hint="Auto-generated from name">
                 <input
                   type="text" value={slug}
@@ -935,7 +935,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             </div>
 
             {/* Row 3: brand + category */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <div className="a-grid-2" style={{ gap: 10, marginBottom: 12 }}>
               <Field label="Brand">
                 {showNewBrand ? (
                   <div style={{ display: "flex", gap: 6 }}>
@@ -969,7 +969,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             </div>
 
             {/* Row 4: product type + sort order */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 10, marginBottom: 16 }}>
+            <div className="a-grid-suffix-120" style={{ gap: 10, marginBottom: 16 }}>
               <Field label="Product type" hint='e.g. "Whey Protein", "Creatine"'>
                 <input
                   type="text" value={productType} onChange={e => setProductType(e.target.value)}
@@ -1028,7 +1028,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             </p>
 
             {/* Goal buttons — 2×2 compact grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
+            <div className="a-grid-4" style={{ gap: 8, marginBottom: 16 }}>
               {HEALTH_GOAL_TAGS.map(({ key, label, Icon, color, bg }) => {
                 const active = healthGoalTags.includes(key);
                 return (
@@ -1096,7 +1096,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             </p>
 
             {/* Serving */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: 10, marginBottom: 14 }}>
+            <div className="a-grid-suffix-140" style={{ gap: 10, marginBottom: 14 }}>
               <Field label="Serving size label" hint='e.g. "1 scoop (30g)"'>
                 <input type="text" value={servingSizeLabel} onChange={e => setServingSizeLabel(e.target.value)}
                   placeholder="1 scoop (30g)" className="a-form-input" />
@@ -1105,8 +1105,8 @@ export function ProductForm({ product, catalogPrefill }: Props) {
             </div>
 
             {/* Macro grid — 2×4 layout */}
-            <div style={{
-              display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10,
+            <div className="a-grid-4" style={{
+              gap: 10,
               padding: 14, background: T.surface2, borderRadius: T.radius,
               border: `1px solid ${T.border}`,
             }}>

@@ -34,6 +34,7 @@ function Toast({ msg, type }: { msg: string; type: "success" | "error" }) {
     <div style={{
       position: "fixed", top: 16, right: 16, zIndex: 100, padding: "10px 16px",
       borderRadius: "var(--a-radius-md)", fontSize: 13, fontWeight: 500,
+      maxWidth: "calc(100vw - 32px)",
       background: type === "success" ? "var(--a-success-bg)" : "var(--a-danger-bg)",
       color: type === "success" ? "var(--a-success-text)" : "var(--a-danger-text)",
       border: `1px solid ${type === "success" ? "var(--a-success-border)" : "var(--a-danger-border)"}`,
@@ -298,7 +299,7 @@ export default function AdminCategoriesPage() {
       {loading ? (
         <div className="a-loading"><RefreshCw style={{ width: 16, height: 16 }} className="animate-spin" />Loading…</div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div className="a-grid-2" style={{ gap: 20 }}>
 
           {/* ── Product Groups panel ─────────────────────────────────── */}
           <div className="a-card">
