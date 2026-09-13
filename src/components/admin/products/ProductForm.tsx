@@ -49,57 +49,64 @@ function emptyVariant(sortOrder: number): VariantDraft {
 }
 
 // ─── Design tokens (scoped, no globals polluted) ──────────────────────────────
-
+// NOTE: these all resolve to the shared --a-* CSS custom properties defined in
+// admin.css, which flip automatically between the light and dark palettes via
+// `.admin-shell[data-admin-theme="dark"]`. Keeping them as var() references
+// (instead of hardcoded hex) is what lets this form follow the admin theme
+// toggle instead of always rendering in light colours.
 const T = {
-  bg: "#F0F4F9",
-  surface: "#FFFFFF",
-  surface2: "#F5F7FB",
-  surface3: "#E8EDF5",
-  border: "#E2E8F0",
-  borderStrong: "#B8C4D8",
-  text: "#0F172A",
-  text2: "#374151",
-  text3: "#6B7280",
-  text4: "#9CA3AF",
-  primary: "#1D4ED8",
-  primaryHover: "#1E40AF",
-  primaryLight: "#EFF6FF",
-  primaryMid: "#DBEAFE",
-  primaryMuted: "rgba(29,78,216,0.08)",
-  primaryText: "#1E40AF",
-  success: "#15803D",
-  successBg: "#DCFCE7",
-  successBorder: "#86EFAC",
-  warning: "#B45309",
-  warningBg: "#FEF3C7",
-  warningBorder: "#FCD34D",
-  danger: "#B91C1C",
-  dangerBg: "#FEE2E2",
-  dangerBorder: "#FCA5A5",
-  dangerText: "#991B1B",
+  bg: "var(--a-bg)",
+  surface: "var(--a-surface)",
+  surface2: "var(--a-surface-2)",
+  surface3: "var(--a-surface-3)",
+  border: "var(--a-border)",
+  borderStrong: "var(--a-border-strong)",
+  text: "var(--a-text)",
+  text2: "var(--a-text-2)",
+  text3: "var(--a-text-3)",
+  text4: "var(--a-text-4)",
+  primary: "var(--a-primary)",
+  primaryHover: "var(--a-primary-hover)",
+  primaryLight: "var(--a-primary-light)",
+  primaryMid: "var(--a-primary-mid)",
+  primaryMuted: "var(--a-primary-muted)",
+  primaryText: "var(--a-primary-text)",
+  success: "var(--a-success)",
+  successBg: "var(--a-success-bg)",
+  successBorder: "var(--a-success-border)",
+  warning: "var(--a-warning)",
+  warningBg: "var(--a-warning-bg)",
+  warningBorder: "var(--a-warning-border)",
+  danger: "var(--a-danger)",
+  dangerBg: "var(--a-danger-bg)",
+  dangerBorder: "var(--a-danger-border)",
+  dangerText: "var(--a-danger-text)",
   radius: "7px",
   radiusMd: "10px",
   radiusLg: "14px",
   radiusSm: "5px",
-  shadow: "0 1px 3px rgba(15,23,42,0.08),0 1px 2px rgba(15,23,42,0.04)",
-  shadowXs: "0 1px 2px rgba(15,23,42,0.05)",
+  shadow: "var(--a-shadow-sm)",
+  shadowXs: "var(--a-shadow-xs)",
 };
 
-// Section definitions for the nav
+// Section definitions for the nav.
+// `color` stays a fixed accent (reads fine on both themes at icon size);
+// `bg` is a low-opacity tint of that same accent (instead of a solid pastel)
+// so the chip blends correctly whether it sits on a light or dark surface.
 const SECTIONS = [
-  { id: "basics",     label: "Basics",      Icon: Package,   color: "#1D4ED8", bg: "#EFF6FF" },
-  { id: "media",      label: "Media",       Icon: ImageIcon, color: "#7C3AED", bg: "#F3E8FF" },
-  { id: "goals",      label: "Goals",       Icon: Sparkles,  color: "#0891B2", bg: "#E0F2FE" },
-  { id: "nutrition",  label: "Nutrition",   Icon: BarChart2, color: "#15803D", bg: "#DCFCE7" },
-  { id: "content",    label: "Content",     Icon: FileText,  color: "#B45309", bg: "#FEF3C7" },
-  { id: "variants",   label: "Variants",    Icon: Layers,    color: "#BE185D", bg: "#FCE7F3" },
+  { id: "basics",     label: "Basics",      Icon: Package,   color: "#3B82F6", bg: "rgba(59,130,246,0.16)" },
+  { id: "media",      label: "Media",       Icon: ImageIcon, color: "#A855F7", bg: "rgba(168,85,247,0.16)" },
+  { id: "goals",      label: "Goals",       Icon: Sparkles,  color: "#22B8CB", bg: "rgba(34,184,203,0.16)" },
+  { id: "nutrition",  label: "Nutrition",   Icon: BarChart2, color: "#22B573", bg: "rgba(34,181,115,0.16)" },
+  { id: "content",    label: "Content",     Icon: FileText,  color: "#E08A1E", bg: "rgba(224,138,30,0.16)" },
+  { id: "variants",   label: "Variants",    Icon: Layers,    color: "#E23F8E", bg: "rgba(226,63,142,0.16)" },
 ];
 
 const HEALTH_GOAL_TAGS = [
-  { key: "weight-gain",     label: "Weight Gain",     Icon: Scale,    color: "#15803D", bg: "#DCFCE7" },
-  { key: "weight-loss",     label: "Weight Loss",     Icon: Flame,    color: "#B45309", bg: "#FEF3C7" },
-  { key: "muscle-building", label: "Muscle Building", Icon: Dumbbell, color: "#1D4ED8", bg: "#EFF6FF" },
-  { key: "general-fitness", label: "General Fitness", Icon: Heart,    color: "#BE185D", bg: "#FCE7F3" },
+  { key: "weight-gain",     label: "Weight Gain",     Icon: Scale,    color: "#22B573", bg: "rgba(34,181,115,0.16)" },
+  { key: "weight-loss",     label: "Weight Loss",     Icon: Flame,    color: "#E08A1E", bg: "rgba(224,138,30,0.16)" },
+  { key: "muscle-building", label: "Muscle Building", Icon: Dumbbell, color: "#3B82F6", bg: "rgba(59,130,246,0.16)" },
+  { key: "general-fitness", label: "General Fitness", Icon: Heart,    color: "#E23F8E", bg: "rgba(226,63,142,0.16)" },
 ];
 
 // ─── Micro helpers ────────────────────────────────────────────────────────────
@@ -393,9 +400,9 @@ function VariantRow({ variant, index, onChange, onDelete, onSetDefault, canDelet
             type="button" onClick={onSetDefault} disabled={variant.isDefault}
             title={variant.isDefault ? "Default variant" : "Set as default"}
             className="a-btn a-btn-ghost a-btn-icon a-btn-sm"
-            style={variant.isDefault ? { color: "#D97706" } : {}}
+            style={variant.isDefault ? { color: T.warning } : {}}
           >
-            <Star style={{ width: 13, height: 13, fill: variant.isDefault ? "#D97706" : "none" }} />
+            <Star style={{ width: 13, height: 13, fill: variant.isDefault ? T.warning : "none" }} />
           </button>
           {canDelete && (
             <button type="button" onClick={onDelete} className="a-btn a-btn-ghost a-btn-icon a-btn-sm" style={{ color: T.danger }}>
@@ -1063,7 +1070,7 @@ export function ProductForm({ product, catalogPrefill }: Props) {
                   <span key={t} style={{
                     display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px",
                     borderRadius: 4, fontSize: 11, fontWeight: 500, background: T.primaryMid, color: T.primaryText,
-                    border: `1px solid #BFDBFE`,
+                    border: `1px solid ${T.primaryMid}`,
                   }}>
                     {t}
                     <button type="button" onClick={() => setTags(prev => prev.filter(x => x !== t))} style={{

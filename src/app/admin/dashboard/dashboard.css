@@ -1,14 +1,27 @@
 /* ══════════════════════════════════════════════════════════════════════
    BB STORE ADMIN — Dashboard v4 (matches the "BB Store Admin Console"
    reference mockup exactly). Scoped entirely to `.bbd-dash` so nothing
-   here leaks onto Orders/Products/Inventory/etc — it works by locally
-   overriding the same --a-* variables those shared components already
-   read (a-card, a-badge, a-table, a-btn, a-range-select…), so cards,
-   badges, tables and buttons on this page automatically pick up the
-   mockup's navy palette without any component code changing.
+   here leaks onto Orders/Products/Inventory/etc.
+
+   Theming: the mockup's rich navy/blue palette below is a *dark-theme*
+   skin. It is deliberately scoped under
+   `.admin-shell[data-admin-theme="dark"] .bbd-dash` so it only applies
+   when the admin is switched to dark mode. In light mode `.bbd-dash`
+   falls through to the plain --a-* tokens already set on `.admin-shell`
+   (see admin.css) — the exact same tokens every other admin page uses —
+   so the dashboard looks like the rest of the light-mode console instead
+   of being stuck in a hardcoded dark skin.
    ══════════════════════════════════════════════════════════════════════ */
 
-   .bbd-dash {
+  .bbd-dash {
+    /* Layout only — colors are theme-scoped further down */
+    background: var(--a-bg);
+    margin: -24px;
+    padding: 24px 24px 32px;
+    min-height: calc(100% + 48px);
+  }
+
+  .admin-shell[data-admin-theme="dark"] .bbd-dash {
     /* Surfaces */
     --a-bg:              #07111a;
     --a-surface:         #101d27;
@@ -80,9 +93,6 @@
     background:
       radial-gradient(900px 500px at 55% -20%, rgba(28,73,105,0.16), transparent 65%),
       linear-gradient(180deg, #07111a, #07121b);
-    margin: -24px;
-    padding: 24px 24px 32px;
-    min-height: calc(100% + 48px);
   }
   
   @media (max-width: 900px) {
@@ -92,12 +102,12 @@
     .bbd-dash { margin: -14px; padding: 16px 16px 24px; }
   }
   
-  .bbd-dash .a-page { max-width: 1440px; padding: 0; }
+  .bbd-dash .a-page { max-width: 100%; padding: 0; }
   
   /* ── Header row ──────────────────────────────────────────────────────── */
   .bbd-dash .a-page-header { margin-bottom: 18px; }
   .bbd-dash .a-page-title  { font-size: 27px; font-weight: 760; letter-spacing: -0.7px; }
-  .bbd-dash .a-page-subtitle { color: #91a0af; }
+  .bbd-dash .a-page-subtitle { color: var(--a-text-3); }
   
   /* ── 5-up stat row — Total Revenue is the hero, rest are secondary ────── */
   .bbd-stats {
@@ -114,8 +124,8 @@
   .bbd-stat {
     border: 1px solid var(--a-border);
     border-radius: var(--a-radius);
-    background: linear-gradient(145deg, #121f29, #0d1923);
-    box-shadow: 0 15px 35px rgba(0,0,0,0.10);
+    background: var(--a-surface);
+    box-shadow: var(--a-shadow-sm);
     height: 128px;
     padding: 16px 16px;
     position: relative;
@@ -127,6 +137,10 @@
     transition: border-color 0.15s, transform 0.12s, box-shadow 0.15s;
   }
   .bbd-stat:hover { transform: translateY(-1px); border-color: var(--a-border-strong); }
+  .admin-shell[data-admin-theme="dark"] .bbd-stat {
+    background: linear-gradient(145deg, #121f29, #0d1923);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.10);
+  }
   
   @media (max-width: 640px) {
     .bbd-stat { height: auto; min-height: 118px; padding: 16px; }
@@ -140,14 +154,21 @@
     padding: 22px 24px;
   }
   .bbd-stat.selected {
+    border-color: var(--a-primary);
+    background: linear-gradient(135deg, var(--a-primary-light) 0%, var(--a-primary-mid) 100%);
+    box-shadow: 0 0 0 1px var(--a-primary-mid), var(--a-shadow-sm);
+  }
+  .admin-shell[data-admin-theme="dark"] .bbd-stat.selected {
     border-color: #3d8bff;
     background: linear-gradient(135deg, #102a55 0%, #163c7b 42%, #35216f 100%);
     box-shadow: 0 0 0 1px rgba(39,133,245,0.30), 0 18px 40px rgba(0,0,0,0.28);
   }
-  .bbd-stat-hero .bbd-stat-icon { width: 60px; height: 60px; margin-right: 18px; background: rgba(255,255,255,0.14); color: #bcd9ff; }
+  .bbd-stat-hero .bbd-stat-icon { width: 60px; height: 60px; margin-right: 18px; background: var(--a-primary-mid); color: var(--a-primary); }
+  .admin-shell[data-admin-theme="dark"] .bbd-stat-hero .bbd-stat-icon { background: rgba(255,255,255,0.14); color: #bcd9ff; }
   .bbd-stat-hero .bbd-stat-icon svg { width: 30px; height: 30px; }
   .bbd-stat-hero .bbd-stat-num { font-size: 32px; line-height: 34px; letter-spacing: -0.4px; }
-  .bbd-stat-hero .bbd-stat-label { font-size: 14.5px; color: #d9e6f7; }
+  .bbd-stat-hero .bbd-stat-label { font-size: 14.5px; color: var(--a-text-2); }
+  .admin-shell[data-admin-theme="dark"] .bbd-stat-hero .bbd-stat-label { color: #d9e6f7; }
   .bbd-stat-hero .bbd-stat-change { font-size: 13px; margin-top: 14px; }
   
   .bbd-stat-icon {
@@ -156,35 +177,43 @@
     border-radius: var(--a-radius);
     margin-right: 14px;
     display: grid; place-items: center;
-    background: #153454; color: #45a3ff;
+    background: var(--a-primary-light); color: var(--a-primary);
   }
-  .bbd-stat-icon.gray  { background: #202e3a; color: #b9c6d3; }
-  .bbd-stat-icon.green { background: #0c3d35; color: #20d992; }
-  .bbd-stat-icon.red   { background: #4a2029; color: #ff6873; }
+  .bbd-stat-icon.gray  { background: var(--a-neutral-bg); color: var(--a-text-3); }
+  .bbd-stat-icon.green { background: var(--a-success-bg); color: var(--a-success); }
+  .bbd-stat-icon.red   { background: var(--a-danger-bg);  color: var(--a-danger); }
+  .admin-shell[data-admin-theme="dark"] .bbd-stat-icon      { background: #153454; color: #45a3ff; }
+  .admin-shell[data-admin-theme="dark"] .bbd-stat-icon.gray { background: #202e3a; color: #b9c6d3; }
+  .admin-shell[data-admin-theme="dark"] .bbd-stat-icon.green{ background: #0c3d35; color: #20d992; }
+  .admin-shell[data-admin-theme="dark"] .bbd-stat-icon.red  { background: #4a2029; color: #ff6873; }
   .bbd-stat-icon svg { width: 24px; height: 24px; }
   
   .bbd-stat-num   { font-size: 24px; font-weight: 800; line-height: 25px; color: var(--a-text); }
-  .bbd-stat-label { color: #c3ced8; font-size: 13.5px; margin-top: 7px; font-weight: 500; }
+  .bbd-stat-label { color: var(--a-text-2); font-size: 13.5px; margin-top: 7px; font-weight: 500; }
   .bbd-stat-change { font-size: 12.5px; margin-top: 12px; display: flex; align-items: center; gap: 4px; }
   .bbd-stat-change svg { width: 13px; height: 13px; }
-  .bbd-stat-change.green { color: #18df8b; }
-  .bbd-stat-change.red   { color: #ff4e5a; }
-  .bbd-stat-change.flat  { color: #8393a2; }
-  .bbd-stat-vs { color: #8393a2; margin-left: 4px; font-weight: 400; }
+  .bbd-stat-change.green { color: var(--a-success); }
+  .bbd-stat-change.red   { color: var(--a-danger); }
+  .bbd-stat-change.flat  { color: var(--a-text-3); }
+  .bbd-stat-vs { color: var(--a-text-3); margin-left: 4px; font-weight: 400; }
   
   .bbd-spark { position: absolute; height: 40px; right: 14px; bottom: 16px; width: 78px; opacity: 0.95; }
   .bbd-stat-hero .bbd-spark { width: 118px; height: 56px; right: 20px; bottom: 18px; opacity: 1; }
-  .bbd-spark path { fill: none; stroke: #2c86ff; stroke-width: 2.2; }
-  .bbd-spark-green path  { stroke: #20db89; }
+  .bbd-spark path { fill: none; stroke: var(--a-primary); stroke-width: 2.2; }
+  .bbd-spark-green path  { stroke: var(--a-success); }
   .bbd-spark-purple path { stroke: #a66cff; }
-  .bbd-spark-red path    { stroke: #ff5865; }
-  .bbd-spark-gray path   { stroke: #91a4b8; }
+  .bbd-spark-red path    { stroke: var(--a-danger); }
+  .bbd-spark-gray path   { stroke: var(--a-text-3); }
+  .admin-shell[data-admin-theme="dark"] .bbd-spark path        { stroke: #2c86ff; }
+  .admin-shell[data-admin-theme="dark"] .bbd-spark-green path  { stroke: #20db89; }
+  .admin-shell[data-admin-theme="dark"] .bbd-spark-red path    { stroke: #ff5865; }
+  .admin-shell[data-admin-theme="dark"] .bbd-spark-gray path   { stroke: #91a4b8; }
   
   /* Real-data split bar — used on cards without a time series but with a genuine two-part breakdown */
   .bbd-splitbar {
     position: absolute; left: 16px; right: 16px; bottom: 14px;
     height: 6px; border-radius: 4px; overflow: hidden;
-    display: flex; background: #1e303e;
+    display: flex; background: var(--a-surface-3);
   }
   .bbd-splitbar div { height: 100%; transition: width 0.2s; }
   
@@ -193,12 +222,15 @@
   .bbd-dash .a-card-title  { font-size: 16.5px; font-weight: 750; gap: 9px; }
   .bbd-dash .a-card-title svg { width: 19px; height: 19px; }
   .bbd-dash .a-card-body   { padding: 10px 18px 16px; }
-  .bbd-dash .a-card { background: linear-gradient(145deg, #121f29, #0d1923); box-shadow: 0 15px 35px rgba(0,0,0,0.10); }
+  /* Light mode: leave the shared .a-card styling from admin.css untouched
+     so cards match every other admin page exactly. Dark mode keeps its
+     own richer navy gradient treatment. */
+  .admin-shell[data-admin-theme="dark"] .bbd-dash .a-card { background: linear-gradient(145deg, #121f29, #0d1923); box-shadow: 0 15px 35px rgba(0,0,0,0.10); }
   
   /* ── Row 1: Revenue trend / Top products / Inventory ──────────────────── */
   .bbd-row1 {
     display: grid;
-    grid-template-columns: 1.78fr 1fr 1fr;
+    grid-template-columns: 1.2fr 1fr 1fr;
     gap: 16px;
     margin-top: 22px;
     align-items: stretch;
@@ -231,10 +263,10 @@
   .bbd-rank {
     width: 26px; height: 26px; border-radius: 50%;
     display: grid; place-items: center;
-    background: #1d3144; color: var(--a-text-2);
+    background: var(--a-surface-3); color: var(--a-text-2);
     font-weight: 800; font-size: 12px; flex-shrink: 0;
   }
-  .bbd-rank.one { background: #247fe9; color: #fff; }
+  .bbd-rank.one { background: var(--a-primary); color: #fff; }
   
   .bbd-thumb {
     width: 42px; height: 42px; flex-shrink: 0;
@@ -255,9 +287,9 @@
   
   .bbd-p-info { min-width: 0; flex: 1; }
   .bbd-p-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; color: var(--a-text); font-weight: 600; }
-  .bbd-p-meta { color: #8e9dab; font-size: 12px; margin-top: 3px; }
-  .bbd-p-bar  { height: 6px; background: #1e303e; border-radius: 5px; margin-top: 6px; overflow: hidden; }
-  .bbd-p-bar i { display: block; height: 100%; background: #2b86ff; border-radius: 5px; }
+  .bbd-p-meta { color: var(--a-text-3); font-size: 12px; margin-top: 3px; }
+  .bbd-p-bar  { height: 6px; background: var(--a-surface-3); border-radius: 5px; margin-top: 6px; overflow: hidden; }
+  .bbd-p-bar i { display: block; height: 100%; background: var(--a-primary); border-radius: 5px; }
   .bbd-p-amount { font-size: 13.5px; font-weight: 700; white-space: nowrap; color: var(--a-text); }
   
   .bbd-inv-row {
@@ -286,7 +318,7 @@
   @media (max-width: 900px) { .bbd-row2 { grid-template-columns: 1fr; gap: 14px; } }
   
   .bbd-dash .a-table th { background: transparent; border-bottom-color: var(--a-border); }
-  .bbd-dash .a-table td { color: #e1e7ec; }
+  .bbd-dash .a-table td { color: var(--a-text-2); }
   .bbd-dash .a-table-wrap { max-height: 264px; overflow-y: auto; overflow-x: auto; }
   @media (max-width: 640px) { .bbd-dash .a-table-wrap { max-height: none; } }
   
@@ -297,7 +329,7 @@
   }
   .bbd-donut::after {
     content: ""; position: absolute; width: 90px; height: 90px;
-    background: #101d27; border-radius: 50%;
+    background: var(--a-surface); border-radius: 50%;
   }
   .bbd-donut span { position: relative; z-index: 1; font-size: 15px; font-weight: 700; color: var(--a-text); }
   .bbd-donut small { position: relative; z-index: 1; font-size: 10.5px; color: var(--a-text-3); }
@@ -312,16 +344,18 @@
   .bbd-summary-row {
     height: 44px; border-bottom: 1px solid var(--a-border);
     display: flex; align-items: center; justify-content: space-between;
-    color: #cbd5de; font-size: 12.5px;
+    color: var(--a-text-2); font-size: 12.5px;
   }
   .bbd-summary-row:last-child { border-bottom: none; }
   .bbd-summary-row .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; }
   .bbd-summary-row b { font-size: 16px; }
-  .bbd-summary-row.green b  { color: #18df8b; }
-  .bbd-summary-row.yellow b { color: #ffb72d; }
-  .bbd-summary-row.blue b   { color: #2d8cff; }
-  .bbd-summary-row.red b    { color: #ff4e5a; }
+  .bbd-summary-row.green b  { color: var(--a-success); }
+  .bbd-summary-row.yellow b { color: var(--a-warning); }
+  .bbd-summary-row.blue b   { color: var(--a-primary); }
+  .bbd-summary-row.red b    { color: var(--a-danger); }
   
   /* ── Date range select — reskin the shared segmented control ──────────── */
-  .bbd-dash .a-range-select { background: #0c1823; border-color: #223546; }
-  .bbd-dash .a-range-option.active { background: #16283a; color: #edf2f6; }
+  /* Light mode: leave the shared .a-range-select styling from admin.css
+     alone (already theme-aware) so it matches every other admin page. */
+  .admin-shell[data-admin-theme="dark"] .bbd-dash .a-range-select { background: #0c1823; border-color: #223546; }
+  .admin-shell[data-admin-theme="dark"] .bbd-dash .a-range-option.active { background: #16283a; color: #edf2f6; }
