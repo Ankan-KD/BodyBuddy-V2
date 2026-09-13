@@ -6,6 +6,7 @@ import { Button } from "./ui/button";
 import { FoodIcon, resolveFoodIconKey, getCategoryStyle } from "@/lib/icons";
 import { searchMasterFoods, mapMasterCategory, masterFoodToDietPrefill, MasterFoodEntry } from "@/lib/masterFoods";
 import { useStore } from "@/lib/store";
+import { authHeaders } from "@/lib/supabase";
 import { FoodCategory, FoodKind, FoodTemplate, RecentFoodTemplate, Unit } from "@/lib/types";
 import { Loader2, Search, Sparkles, Wand2 } from "lucide-react";
 
@@ -63,7 +64,7 @@ function matchesQuery(name: string, aliases: string[], q: string): boolean {
  *    fully editable before saving.
  */
 export function ManualLogSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { foods, recentFoods, logQuantity, addQuantity, toggleBinary, logRecentFood } = useStore();
+  const { foods, recentFoods, addQuantity, toggleBinary, logRecentFood } = useStore();
 
   const [query, setQuery] = useState("");
   const [step, setStep] = useState<"search" | "confirm">("search");
@@ -146,7 +147,7 @@ export function ManualLogSheet({ open, onClose }: { open: boolean; onClose: () =
     try {
       const res = await fetch("/api/food-lookup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ name }),
       });
       const data = await res.json();

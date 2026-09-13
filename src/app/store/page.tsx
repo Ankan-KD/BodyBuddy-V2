@@ -32,7 +32,7 @@ export default function StorePage() {
   const { data: featured, loading: prodLoading } = useProducts({ featured: true, limit: 4 });
   const { data: deals, loading: dealsLoading } = useDealProducts(8);
   const { data: recentlyViewed, loading: recentLoading } = useRecentlyViewed(8);
-  const { data: settings } = useStoreSettings();
+  useStoreSettings();
   const { data: activeOffers } = useActiveOffers();
   const personalization = usePersonalization();
 

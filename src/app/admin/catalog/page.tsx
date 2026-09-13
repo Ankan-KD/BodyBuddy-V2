@@ -6,11 +6,11 @@
 // From here admins can view & edit all catalogue product info.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Search, BookOpen, Package, Plus, X, RefreshCw, Upload,
   Edit2, ChevronLeft, ChevronRight, Info, Dumbbell, Flame, Heart, Scale,
-  Check, AlertTriangle, ExternalLink, Eye, Tag, Hash, ShieldAlert, Layers,
+  Check, AlertTriangle, Eye, Tag, Hash, ShieldAlert, Layers,
   Box, IndianRupee, Target,
 } from "lucide-react";
 import {
@@ -508,8 +508,6 @@ function DetailPanel({
   async function saveTypeId(id: string) {
     await save("product_type_id", id);
   }
-
-  const defaultVariant = product.variants.find((v) => v.isDefaultVariant) ?? product.variants[0];
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex" }}>

@@ -36,7 +36,6 @@ const C_TEXT       = "#191631";
 const C_MUTED      = "#64608a";
 const C_BORDER     = "#e2ddf5";
 const C_ACCENT     = "#f5601f";
-const C_ACCENT_BG  = "#fff4ef";
 const C_HEADER_BG  = "#f6f4fd";
 const C_SUCCESS    = "#1a9f6b";
 const C_SUCCESS_BG = "#e6f7f2";

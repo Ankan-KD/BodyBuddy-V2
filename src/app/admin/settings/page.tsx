@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import {
-  Settings, Save, RefreshCw, AlertTriangle, Check,
+  Save, RefreshCw, AlertTriangle,
   Store, Bell, Shield, Star, Lock, Eye, EyeOff,
   KeyRound, CheckCircle2, Loader2,
 } from "lucide-react";
@@ -11,7 +11,6 @@ import {
   adminSaveSettings,
   adminFetchAllCategories,
 } from "@/lib/storeAdminApi";
-import type { StoreSettings } from "@/lib/offerTypes";
 import type { StoreCategory } from "@/lib/storeTypes";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
@@ -338,7 +337,6 @@ function AdminPasswordSection({ userEmail, hasPassword }: { userEmail: string; h
 
 export default function AdminSettingsPage() {
   const { user } = useAuth();
-  const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [categories, setCategories] = useState<StoreCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -365,7 +363,6 @@ export default function AdminSettingsPage() {
     async function load() {
       setLoading(true);
       const [s, cats] = await Promise.all([adminFetchSettings(), adminFetchAllCategories()]);
-      setSettings(s);
       setCategories(cats);
       setStoreName(s.storeName);
       setStoreTagline(s.storeTagline);

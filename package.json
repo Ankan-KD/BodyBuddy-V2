@@ -19,7 +19,6 @@
     "papaparse": "^5.7.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "resend": "^4.8.0",
     "tailwind-merge": "^2.5.5"
   },
   "devDependencies": {

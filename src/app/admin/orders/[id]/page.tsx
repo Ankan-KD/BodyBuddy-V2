@@ -6,7 +6,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -28,12 +28,10 @@ import {
 import type { StoreOrder, OrderStatus } from "@/lib/orderTypes";
 import {
   ORDER_STATUS_LABELS,
-  ORDER_STATUS_COLORS,
   PAYMENT_METHOD_LABELS,
 } from "@/lib/orderTypes";
 import type { StoreSettings } from "@/lib/offerTypes";
 import { formatPriceINR } from "@/lib/cartContext";
-import { cn } from "@/lib/utils";
 import { downloadReceiptPdf } from "@/lib/receiptPdf";
 import { downloadAdminReceiptPdf } from "@/lib/adminReceiptPdf";
 import { printShippingLabel, downloadShippingLabel } from "@/lib/shippingLabelPdf";
@@ -104,7 +102,6 @@ function Section({
 
 export default function AdminOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
 
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [settings, setSettings] = useState<StoreSettings | null>(null);

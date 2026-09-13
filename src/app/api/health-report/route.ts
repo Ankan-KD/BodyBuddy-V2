@@ -1,5 +1,6 @@
 import { GoalMode } from "@/lib/types";
 import { fetchGeminiWithRetry, GEMINI_MODEL } from "@/lib/geminiRetry";
+import { getUserFromRequest } from "@/lib/supabaseAdmin";
 import { NextRequest, NextResponse } from "next/server";
 
 /**
@@ -168,6 +169,11 @@ function localFallback(b: InsightsRequestBody): InsightsResult {
 }
 
 export async function POST(req: NextRequest) {
+  const user = await getUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
   const body = (await req.json()) as InsightsRequestBody;
 
   const gemini = await callGemini(body);

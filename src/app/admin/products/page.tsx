@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import {
   adminFetchProducts,
-  adminDeleteProduct,
   adminToggleFeaturedProduct,
   adminUpdateProduct,
 } from "@/lib/storeAdminApi";
@@ -138,11 +137,6 @@ export default function AdminProductsPage() {
     e.preventDefault();
     setPage(0);
     setSearch(searchInput);
-  }
-
-  async function handleDelete(id: string) {
-    await adminDeleteProduct(id);
-    load();
   }
 
   async function handleToggleFeatured(id: string, current: boolean) {

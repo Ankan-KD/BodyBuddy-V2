@@ -5,6 +5,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
+import { authHeaders } from "@/lib/supabase";
 import { DayRecord, WeightEntry } from "@/lib/types";
 import { REPORT_PERIOD_OPTIONS, ReportPeriodKey, resolvePeriod, periodRangeLabel } from "@/lib/reportPeriod";
 import { buildReportData } from "@/lib/reportData";
@@ -79,7 +80,7 @@ export function ReportGeneratorSheet({ open, onClose }: { open: boolean; onClose
       try {
         const res = await fetch("/api/health-report", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeaders()) },
           body: JSON.stringify({
             goalMode: settings.goalMode,
             periodLabel: periodRangeLabel(period),

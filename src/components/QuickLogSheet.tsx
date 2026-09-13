@@ -4,6 +4,7 @@ import { coachQuickPrompts, coachSubheading } from "@/lib/goalCopy";
 import { AppIcon, FoodIcon, getCategoryStyle, resolveFoodIconKey } from "@/lib/icons";
 import { computeCombinedTotals } from "@/lib/nutrition";
 import { useStore } from "@/lib/store";
+import { authHeaders } from "@/lib/supabase";
 import { DietContribution, FoodCategory, GoalMode, RecentFoodTemplate } from "@/lib/types";
 import {
   CheckCircle2,
@@ -410,7 +411,7 @@ export function QuickLogSheet({ open, onClose }: { open: boolean; onClose: () =>
     try {
       const res = await fetch("/api/food-chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({
           messages: history
             .filter((m) => m !== GREETING)
@@ -421,6 +422,21 @@ export function QuickLogSheet({ open, onClose }: { open: boolean; onClose: () =>
         }),
       });
       const data = await res.json();
+
+      if (!res.ok) {
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            text:
+              res.status === 401
+                ? "Your session has expired — please sign in again to keep logging."
+                : data.error || "Something went wrong on the server. Please try again.",
+          },
+        ]);
+        return;
+      }
+
       const actions: ChatAction[] = Array.isArray(data.actions) ? data.actions : [];
 
       let logged: { name: string; emoji: string; category?: string }[] = [];
@@ -473,7 +489,7 @@ export function QuickLogSheet({ open, onClose }: { open: boolean; onClose: () =>
     try {
       const res = await fetch("/api/nutrition-coach", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({
           messages: history
             .filter((m) => m !== COACH_GREETING)
@@ -483,6 +499,21 @@ export function QuickLogSheet({ open, onClose }: { open: boolean; onClose: () =>
         }),
       });
       const data = await res.json();
+
+      if (!res.ok) {
+        setCoachMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            text:
+              res.status === 401
+                ? "Your session has expired — please sign in again to keep chatting."
+                : data.error || "Something went wrong on the server. Please try again.",
+          },
+        ]);
+        return;
+      }
+
       const suggestions: CoachSuggestion[] = Array.isArray(data.suggestions) ? data.suggestions : [];
       setCoachMessages((m) => [
         ...m,

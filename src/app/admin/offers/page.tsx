@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Plus, Search, Percent, Edit2, Trash2, RefreshCw,
   ToggleLeft, ToggleRight, X, AlertTriangle, Check,
-  Tag, Calendar, Users, ShoppingBag,
+  Tag,
 } from "lucide-react";
 import {
   adminFetchAllOffers,
@@ -18,7 +18,6 @@ import {
 import type { StoreOffer } from "@/lib/offerTypes";
 import { offerLabel, isOfferCurrentlyValid } from "@/lib/offerTypes";
 import type { StoreProduct } from "@/lib/storeTypes";
-import { formatPriceINR } from "@/lib/storeTypes";
 
 const EMPTY_FORM: OfferUpsertPayload = {
   title: "",

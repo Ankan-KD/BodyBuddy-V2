@@ -8,7 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import Link from "next/link";
-import { Heart, Loader2, ShoppingCart, Package } from "lucide-react";
+import { Heart, ShoppingCart, Package } from "lucide-react";
 import { useWishlist } from "@/lib/wishlistContext";
 import { ProductCard, ProductCardSkeleton } from "@/components/store/ProductCard";
 

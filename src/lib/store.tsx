@@ -16,7 +16,7 @@ import {
   UserSettings,
   WeightEntry,
 } from "./types";
-import { addDaysISO, clampToBackdateWindow, dayOfWeekFromISO, isFoodScheduledOn, todayISO } from "./utils";
+import { addDaysISO, clampToBackdateWindow, isFoodScheduledOn, todayISO } from "./utils";
 
 const DEFAULT_SETTINGS: UserSettings = {
   name: "",

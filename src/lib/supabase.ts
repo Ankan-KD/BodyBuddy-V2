@@ -20,3 +20,18 @@ export const supabase = isSupabaseConfigured
       },
     })
   : null;
+
+/**
+ * Returns an `Authorization: Bearer <token>` header for the current signed-in
+ * user (or an empty object if signed out / not configured). Every API route
+ * that must know *which* user is calling it (not just trust the request)
+ * needs this attached — otherwise the server can't tell a real user from an
+ * anonymous caller. Used for the AI routes (food-chat, food-lookup,
+ * health-report, nutrition-coach) and the store checkout routes.
+ */
+export async function authHeaders(): Promise<Record<string, string>> {
+  if (!supabase) return {};
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}

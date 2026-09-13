@@ -1,5 +1,6 @@
 import { FoodTemplate, GoalMode } from "@/lib/types";
 import { fetchGeminiWithRetry, GEMINI_MODEL } from "@/lib/geminiRetry";
+import { getUserFromRequest } from "@/lib/supabaseAdmin";
 import { NextRequest, NextResponse } from "next/server";
 
 /**
@@ -226,6 +227,11 @@ function localFallback(foods: FoodTemplate[], ctx: CoachRequestContext): CoachRe
 }
 
 export async function POST(req: NextRequest) {
+  const user = await getUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
   const { messages, foods, coach } = (await req.json()) as {
     messages: CoachMessage[];
     foods: FoodTemplate[];

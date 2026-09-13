@@ -22,11 +22,9 @@ import {
 import type { StoreOrder, OrderStatus } from "@/lib/orderTypes";
 import {
   ORDER_STATUS_LABELS,
-  ORDER_STATUS_COLORS,
   PAYMENT_METHOD_LABELS,
 } from "@/lib/orderTypes";
 import { formatPriceINR } from "@/lib/cartContext";
-import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 25;
 

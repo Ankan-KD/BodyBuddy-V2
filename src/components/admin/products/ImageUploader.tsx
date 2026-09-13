@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Upload, X, ImageIcon, Loader2, GripVertical, Link2 } from "lucide-react";
+import { Upload, X, Loader2, Link2 } from "lucide-react";
 import { adminUploadProductImage } from "@/lib/storeAdminApi";
 
 interface Props {

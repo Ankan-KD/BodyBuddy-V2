@@ -14,7 +14,7 @@ import {
 import { GoalMode } from "@/lib/types";
 import { GOAL_SHORT_LABELS, goalWeightWarning, calorieGoalWarning } from "@/lib/goalCopy";
 import {
-  validatePassword, sendOTP, verifyOTPServer, updatePasswordAfterOtp,
+  validatePassword, sendOTP, verifyOTPServer,
   checkHasPassword, markResendSent,
 } from "@/lib/passwordUtils";
 

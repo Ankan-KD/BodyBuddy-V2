@@ -232,7 +232,7 @@ export default function AdminLoginPage() {
               <div className="a-login-logo-icon"><Lock style={{ width: 18, height: 18 }} /></div>
               <div>
                 <div className="a-login-title">Reset password</div>
-                <div className="a-login-sub">We'll send a code to your email</div>
+                <div className="a-login-sub">We&apos;ll send a code to your email</div>
               </div>
             </div>
             <form onSubmit={handleForgotSend} style={{ display: "flex", flexDirection: "column", gap: 10 }}>

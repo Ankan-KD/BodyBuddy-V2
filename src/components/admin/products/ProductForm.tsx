@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Save, ArrowLeft, Loader2, AlertTriangle, Info, Tag, Dumbbell, Flame,
+  Save, ArrowLeft, Loader2, AlertTriangle, Info, Dumbbell, Flame,
   Heart, Scale, Eye, EyeOff, Plus, X, Star, ChevronDown, ChevronUp,
   GripVertical, Trash2, Upload, Link2, ImageIcon, Package, FileText,
   BarChart2, Layers, Sparkles, CheckCircle2, AlertCircle,

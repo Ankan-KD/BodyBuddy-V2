@@ -48,7 +48,6 @@ const TAB_LABELS: Record<FilterTab, string> = {
 function OrderCard({ order }: { order: StoreOrder }) {
   const statusColor = ORDER_STATUS_COLORS[order.status];
   const itemCount = order.items?.reduce((s, i) => s + i.quantity, 0) ?? 0;
-  const firstImage = order.items?.[0]?.imageUrl ?? null;
   const moreCount = (order.items?.length ?? 0) - 1;
 
   return (

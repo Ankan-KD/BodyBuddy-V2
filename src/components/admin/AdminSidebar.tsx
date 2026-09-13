@@ -28,7 +28,7 @@ export function AdminSidebar({ open, onClose }: Props) {
   const pathname = usePathname();
   const router   = useRouter();
   const { signOut } = useAuth();
-  const { theme, toggleTheme, isDark } = useAdminTheme();
+  const { toggleTheme, isDark } = useAdminTheme();
 
   async function handleSignOut() {
     await signOut();

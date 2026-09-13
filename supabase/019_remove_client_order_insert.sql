@@ -1,0 +1,43 @@
+-- BodyBuddy — Remove client-side INSERT access to store_orders / store_order_items
+-- Run this in your Supabase SQL editor AFTER 018_fix_self_admin_escalation.sql.
+--
+-- THE BUG:
+-- "Users insert own orders" (005_store_orders.sql) only checks
+-- `auth.uid() = user_id` — it says nothing about payment_status,
+-- total_paise, discount_paise, etc. Any signed-in user could call the
+-- Supabase client directly from devtools:
+--
+--   supabase.from('store_orders').insert({
+--     user_id: myId, total_paise: 100, payment_status: 'paid', ...
+--   })
+--
+-- ...and create a fully "paid" order for a few paise, or for free,
+-- bypassing Razorpay entirely. "Users insert own order items" has the
+-- same shape of gap for line items (arbitrary product/price/quantity),
+-- gated only by the parent order belonging to the caller.
+--
+-- THE FIX: checkout is already fully server-side and has been since the
+-- Razorpay integration shipped — POST /api/store/checkout/create-order
+-- (src/app/api/store/checkout/create-order/route.ts) uses the service-role
+-- client for every store_orders / store_order_items write, after
+-- recomputing pricing itself from trusted product/variant data. The old
+-- client-side `placeOrder()` helper (src/lib/orderApi.ts) that used to
+-- insert directly was already dead code — grep confirms it is never
+-- called from any component — and has been removed from the codebase in
+-- this same change.
+--
+-- There is therefore no legitimate reason for the anon/authenticated
+-- Postgres role to be able to INSERT into either table at all. Dropping
+-- these policies leaves SELECT (customers can still read their own
+-- orders/items) intact, and the service-role key — which bypasses RLS
+-- entirely — unaffected, so the real checkout flow keeps working.
+
+drop policy if exists "Users insert own orders" on public.store_orders;
+drop policy if exists "Users insert own order items" on public.store_order_items;
+
+-- Sanity check after applying: as a normal signed-in user, this should now
+-- be rejected by RLS (0 rows affected / permission error), while the
+-- existing "Users view own orders" SELECT policy continues to let a user
+-- read their own past orders normally:
+--   insert into public.store_orders (order_number, user_id, customer_name, customer_email)
+--   values ('TEST-1', auth.uid(), 'x', 'x@x.com');

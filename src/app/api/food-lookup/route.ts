@@ -1,5 +1,6 @@
 import { FOOD_ICON_OPTIONS } from "@/lib/iconKeys";
 import { fetchGeminiWithRetry, GEMINI_MODEL } from "@/lib/geminiRetry";
+import { getUserFromRequest } from "@/lib/supabaseAdmin";
 import { NextRequest, NextResponse } from "next/server";
 
 const ICON_KEYS = FOOD_ICON_OPTIONS.map((o) => o.key);
@@ -178,6 +179,11 @@ Be decisive and realistic — use real nutrition knowledge for the identified fo
 }
 
 export async function POST(req: NextRequest) {
+  const user = await getUserFromRequest(req);
+  if (!user) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
   const { name } = (await req.json()) as { name?: string };
   if (!name || !name.trim()) {
     return NextResponse.json({ error: "Missing food name" }, { status: 400 });
