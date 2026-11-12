@@ -118,7 +118,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Your cart is empty or its items are no longer available." }, { status: 400 });
   }
 
-  // ── 2. Stock check ──────────────────────────────────────────────────
+  // ── 2. Early stock check (fast, friendly error only — NOT the real guard;
+  //      the atomic check lives in the DB trigger, see 012_fix_inventory_race_condition.sql)
   for (const row of purchasable) {
     const v = row.store_product_variants!;
     if (v.stock_quantity < row.quantity) {
@@ -194,11 +195,33 @@ export async function POST(request: Request) {
     };
   });
 
+  // Insert in a fixed (variant_id) order. The DB trigger row-locks each
+  // variant as it deducts stock; if two multi-item orders locked the same
+  // variants in different orders they could deadlock. Sorting makes every
+  // order lock them in the same sequence.
+  itemRows.sort((a, b) => String(a.variant_id).localeCompare(String(b.variant_id)));
+
   const { error: itemsError } = await supabaseAdmin.from("store_order_items").insert(itemRows);
   if (itemsError) {
     // Nothing was deducted (single insert statement — atomic), so a
     // plain delete is safe here; no inventory to restore.
     await supabaseAdmin.from("store_orders").delete().eq("id", orderId);
+
+    // The DB trigger raises OUT_OF_STOCK:<variant_id> when another buyer
+    // took the last units between our early check (step 2) and this insert.
+    // Because the whole insert is one statement, nothing was deducted.
+    const oos = /OUT_OF_STOCK:([0-9a-fA-F-]{36})/.exec(itemsError.message);
+    if (oos) {
+      const hit = purchasable.find((r) => r.store_product_variants?.id === oos[1]);
+      const name = hit?.store_product_variants?.store_products?.name ?? "An item in your cart";
+      return NextResponse.json(
+        {
+          error: `Sorry — someone just bought the last unit(s) of "${name}". Please update your cart.`,
+          code: "OUT_OF_STOCK",
+        },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: `Failed to save order items: ${itemsError.message}` }, { status: 500 });
   }
 
