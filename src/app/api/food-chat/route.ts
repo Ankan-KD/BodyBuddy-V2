@@ -1,9 +1,9 @@
-import { parseFoodEntry } from "@/lib/parseFood";
-import { FoodTemplate, GoalMode, RecentFoodTemplate } from "@/lib/types";
+import { GEMINI_MODEL, fetchGeminiWithRetry } from "@/lib/geminiRetry";
 import { FOOD_ICON_OPTIONS } from "@/lib/iconKeys";
-import { findMasterFoodMatches, findBestMasterFoodMatch, formatMasterFoodsForPrompt } from "@/lib/masterFoods";
-import { fetchGeminiWithRetry, GEMINI_MODEL } from "@/lib/geminiRetry";
+import { findBestMasterFoodMatch, findMasterFoodMatches, formatMasterFoodsForPrompt } from "@/lib/masterFoods";
+import { parseFoodEntry } from "@/lib/parseFood";
 import { getUserFromRequest } from "@/lib/supabaseAdmin";
+import { FoodTemplate, GoalMode, RecentFoodTemplate } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
 
 const ICON_KEYS = FOOD_ICON_OPTIONS.map((o) => o.key);
@@ -261,7 +261,10 @@ For a NEW "log_recent" entry (no matching recentFoodId to reuse):
 
 For "dietContributions" (Case 3): estimate the ingredient-level amount actually consumed (e.g. chicken biryani for one adult plate: rice ~250-300g, chicken ~120-150g), not the whole dish's weight, and express each in that Diet item's own unit/kind (count for binary/count items, grams/ml for quantity items — for binary/serving Diet items just credit the full targetQuantity if a normal portion clearly covers it).
 
-Coaching tone for "reply": once you're confident in what to log (done: true, actions populated — this should be almost every turn, since you never stop to ask for quantities), briefly confirm what was logged (mentioning any assumed portion size in passing), then add ONE short nutrition-coach sentence using the remaining-calories/remaining-protein numbers below when provided. Keep the whole reply to max 2 short sentences, plain and practical, never generic praise. Only leave "done": false with empty "actions" in the rare case the message contains no identifiable food at all (e.g. "hey" or a question about the app) — ask what they ate, don't ask about portion sizes.
+Coaching tone for "reply": once you're confident in what to log (done: true, actions populated — this should be almost every turn, since you never stop to ask for quantities), briefly confirm what was logged (mentioning any assumed portion size in passing), then add ONE short nutrition-coach sentence using the remaining-calories/remaining-protein numbers below when provided. Keep the whole reply to max 2 short sentences, plain and practical, never generic praise. Only leave "done": false with empty "actions" in the rare case the message contains no identifiable food at all (e.g. "hey" or a question about the app) — ask what they ate, don't ask about portion sizes.If the user is asking a QUESTION or for advice rather than reporting food they ate
+(e.g. "what should I eat to gain weight?"), do NOT log anything: set "done": false,
+"actions": [], and put a short, practical answer in "reply" (use the remaining-calories/protein
+numbers when relevant).
 ${coach ? buildCoachGuidance(coach) : ""}
 The user's Diet (Case 1 matches only — never modify this list):
 ${dietList}
@@ -270,7 +273,8 @@ The user's Recent Foods catalog (reuse via "recentFoodId" when the same dish/foo
 ${recentList}
 
 Master Food Database reference (a curated nutrition dataset — NOT the user's own foods). These candidates were pre-filtered by a simple text search, so they may include noisy/unrelated results — some are matched only because a vernacular alias (e.g. "aloo") is loosely tagged on many entries. Use the English name/ingredients you identified in Step 0 to judge, by MEANING, whether any of these entries is actually a clear match for the dish described — not by whichever one happens to be listed first. When one clearly IS the dish (or a major ingredient of it), prefer its real figures (scaled to the portion the user describes) over estimating from scratch — it's more accurate and keeps values consistent across users. When a matched entry lists "ingredients", treat that as curated ground truth for the Case 3 check (which of THIS dish's ingredients match a Diet item) — prefer it over your own assumption about what the dish contains, the same way you prefer Step 0's search-grounded identification over guessing. If nothing below is genuinely the right match, ignore the noise and estimate normally from your own knowledge instead of forcing a fit:
-${latestUserMessage ? formatMasterFoodsForPrompt(findMasterFoodMatches(latestUserMessage, 15)) : "(none provided)"}`;
+${latestUserMessage ? formatMasterFoodsForPrompt(findMasterFoodMatches(latestUserMessage, 15)) : "(none provided)"}`
+;
 }
 
 /** Goal-aware coaching context + phrasing rules, appended to the system prompt when the caller supplies today's numbers (Phase 4). */
@@ -538,15 +542,23 @@ function validateChatResult(result: ChatResult, foods: FoodTemplate[]): ChatResu
   // Weaker/cheaper models are more prone to this than a mismatched-id
   // parsing bug, so don't let the client show a success message for a
   // request that logged nothing.
+
   if (result.done && actions.length === 0) {
-    console.warn(
-      `[food-chat] Model returned done:true with zero usable actions (raw reply: "${result.reply}") — overriding so the client doesn't show a false success.`
-    );
+    // Only treat as a false success if the reply actually CLAIMS something was logged.
+    const claimsLogged =
+      /\b(logged|i['’]?ve (added|logged|recorded|credited)|added to|credited|recorded|saved)\b/i.test(
+        result.reply ?? ""
+      );
+    if (!claimsLogged && result.reply && result.reply.trim().length > 0) {
+      // Pure advice/answer: pass the model's reply through, log nothing.
+      return { ...result, done: false, actions: [] };
+    }
+  
+    console.warn(`[food-chat] Model returned done:true with zero usable actions ...`);
     return {
       done: false,
       actions: [],
-      reply:
-        "I wasn't able to confidently match that to your Diet or work out its ingredients that time — try adding a bit more detail (like the portion size), or log it directly from the Recent Foods tab.",
+      reply: "I wasn't able to confidently match that to your Diet or work out its ingredients that time — try adding a bit more detail (like the portion size), or log it directly from the Recent Foods tab.",
     };
   }
 
