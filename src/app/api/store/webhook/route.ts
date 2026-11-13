@@ -60,7 +60,7 @@ export async function POST(request: Request) {
 
   const { data: order } = await supabaseAdmin
     .from("store_orders")
-    .select("id, user_id, payment_status")
+    .select("id, user_id, payment_status, status")
     .eq("razorpay_order_id", payment.order_id)
     .single();
 
@@ -69,6 +69,16 @@ export async function POST(request: Request) {
   }
 
   const method = normalizePaymentMethod(payment.method ?? (await fetchRazorpayPayment(payment.id)).payment?.method);
+
+  // ── Late payment on an order the expiry job already cancelled ────────
+  // Its stock was released. Try to re-take it atomically; if the item has
+  // sold out meanwhile we still record the payment (money WAS captured) but
+  // flag the order so an admin refunds it in the Razorpay dashboard.
+  let needsRefund = false;
+  if (order.status === "cancelled") {
+    const { data: revived } = await supabaseAdmin.rpc("revive_cancelled_order", { p_order_id: order.id });
+    needsRefund = revived !== true;
+  }
 
   // The `.neq("payment_status", "paid")` guard means at most one of
   // {this webhook delivery, the client's verify-payment call} can ever
@@ -81,7 +91,9 @@ export async function POST(request: Request) {
       payment_method: method,
       razorpay_payment_id: payment.id,
       payment_reference: payment.id,
-      payment_error: null,
+      payment_error: needsRefund
+        ? "REFUND_REQUIRED: paid after the order expired and the item sold out meanwhile."
+        : null,
     })
     .eq("id", order.id)
     .neq("payment_status", "paid")
@@ -99,7 +111,7 @@ export async function POST(request: Request) {
   // PERF: run it via `after()` so Razorpay gets its ack immediately
   // instead of waiting on PDF generation + SMTP send (Razorpay retries
   // webhooks that are slow to ack, so this also avoids duplicate deliveries).
-  if (!updateError && updated) {
+  if (!updateError && updated && !needsRefund) {
     const confirmedOrder = orderFromRow(updated as OrderRow);
     after(() => sendOrderConfirmationEmail(confirmedOrder));
   }

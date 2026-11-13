@@ -1,8 +1,8 @@
-import { NextResponse, after } from "next/server";
-import { supabaseAdmin, getUserFromRequest } from "@/lib/supabaseAdmin";
-import { verifyPaymentSignature, fetchRazorpayPayment, normalizePaymentMethod } from "@/lib/razorpayServer";
-import { orderFromRow, type OrderRow } from "@/lib/orderTypes";
 import { sendOrderConfirmationEmail } from "@/lib/orderConfirmationEmail";
+import { orderFromRow, type OrderRow } from "@/lib/orderTypes";
+import { fetchRazorpayPayment, normalizePaymentMethod, verifyPaymentSignature } from "@/lib/razorpayServer";
+import { getUserFromRequest, supabaseAdmin } from "@/lib/supabaseAdmin";
+import { NextResponse, after } from "next/server";
 
 // ════════════════════════════════════════════════════════════════════════
 // BB Store — Verify Razorpay Payment
@@ -76,6 +76,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ verified: false, error: "Payment signature could not be verified." }, { status: 400 });
   }
 
+  // ── Late payment on an order the expiry job already cancelled ────────
+  // Its stock was released. Re-take it atomically; if the item sold out
+  // meanwhile, record the captured payment, flag it for refund, and tell
+  // the customer honestly instead of showing a false "order confirmed".
+  let needsRefund = false;
+  if (orderRow.status === "cancelled") {
+    const { data: revived } = await supabaseAdmin.rpc("revive_cancelled_order", { p_order_id: orderId });
+    needsRefund = revived !== true;
+  }
+
   // Look up the real instrument used (upi/card/netbanking/wallet) for
   // accurate receipts/admin views — falls back to "other" if unavailable.
   const { payment } = await fetchRazorpayPayment(razorpay_payment_id);
@@ -89,7 +99,9 @@ export async function POST(request: Request) {
       razorpay_payment_id,
       razorpay_signature,
       payment_reference: razorpay_payment_id,
-      payment_error: null,
+      payment_error: needsRefund
+        ? "REFUND_REQUIRED: paid after the order expired and the item sold out meanwhile."
+        : null,
     })
     // Guards against a duplicate/racing update re-applying this.
     .eq("id", orderId)
@@ -108,6 +120,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ verified: true, order: orderFromRow(recheck as OrderRow) });
     }
     return NextResponse.json({ verified: false, error: "Could not confirm payment. Please contact support." }, { status: 500 });
+  }
+
+  if (needsRefund) {
+    return NextResponse.json(
+      {
+        verified: false,
+        error:
+          "Your payment was received, but the item sold out while checkout was open. We will refund you shortly.",
+      },
+      { status: 409 }
+    );
   }
 
   // Payment confirmed — now safe to clear the cart.
