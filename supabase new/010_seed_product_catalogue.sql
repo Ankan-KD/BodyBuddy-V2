@@ -1,28 +1,17 @@
 -- ════════════════════════════════════════════════════════════════════════
--- 010 — Full Catalogue Seed (332 products, 429 variants)
--- Generated from product_catalog.csv (updated dataset)
--- Run AFTER 009_catalogue_redesign.sql
--- Safe to re-run: uses ON CONFLICT DO UPDATE (upsert)
+-- 010 — Master product catalogue seed (332 products, 429 variants)
+-- Depends on: 004 (product_groups, product_types, product_catalogue,
+--             product_catalogue_variants incl. its unique constraint)
 --
--- FIX: 009_catalogue_redesign.sql created product_catalogue_variants without
--- UNIQUE (catalogue_id, variant_id). All 429 ON CONFLICT variant upserts need
--- that constraint. Added here via a DO block so this file is self-contained
--- and safe to re-run (the DO block is a no-op when the constraint exists).
+-- Generated from src/data/product_catalog.csv. Loads, in order:
+--   1. product_groups   2. product_types   3. product_catalogue
+--   4. product_catalogue_variants
+-- Re-runnable: every insert is an upsert (ON CONFLICT DO UPDATE), and the
+-- whole file runs in one transaction.
+--
+-- This fills the admin import library only. Nothing here appears in the
+-- storefront until an admin imports a product into store_products.
 -- ════════════════════════════════════════════════════════════════════════
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'uq_catalogue_variants_catalogue_variant'
-      AND conrelid = 'public.product_catalogue_variants'::regclass
-  ) THEN
-    ALTER TABLE public.product_catalogue_variants
-      ADD CONSTRAINT uq_catalogue_variants_catalogue_variant
-      UNIQUE (catalogue_id, variant_id);
-  END IF;
-END;
-$$;
 
 BEGIN;
 

@@ -1,32 +1,24 @@
 -- ════════════════════════════════════════════════════════════════════════
 -- 011 — Promote a user to BB Store admin
--- Depends on: 002_core_health_schema.sql (user_settings.is_store_admin),
---             003_auth_and_signup_security.sql (self-privilege-escalation
---             trigger — see note below)
+-- Depends on: 003 (user_security)
 --
--- Run this AFTER the target account has already signed up normally in the
--- app. Replace the email below with the real admin's email address before
--- running.
+-- Run AFTER the account has signed up normally in the app. Replace the
+-- email below, then run it in the Supabase SQL editor (postgres session).
 --
--- IMPORTANT: run this in the Supabase SQL editor (or any other connection
--- authenticated as the `postgres` / `service_role` user). The trigger
--- installed in 003_auth_and_signup_security.sql
--- (trg_prevent_self_privilege_escalation) deliberately BLOCKS any ordinary
--- signed-in user (anon/authenticated Postgres role) from setting
--- is_store_admin on their own row — this statement only succeeds because
--- the SQL editor runs as a superuser/service-role session, which the
--- trigger explicitly trusts (see 018_fix_self_admin_escalation.sql /
--- 003_auth_and_signup_security.sql for the full rationale).
+-- Signed-in app users cannot do this themselves: public.user_security has
+-- no insert/update/delete policy, so only the SQL editor, the service role
+-- and SECURITY DEFINER functions can change admin status.
 -- ════════════════════════════════════════════════════════════════════════
 
-UPDATE public.user_settings
-SET is_store_admin = true
-WHERE user_id = (
-  SELECT id FROM auth.users WHERE email = 'mailid@gmail.com'
-);
+insert into public.user_security (user_id, is_store_admin)
+select id, true from auth.users where email = 'mailid@gmail.com'
+on conflict (user_id) do update set is_store_admin = true;
 
--- Sanity check — should show is_store_admin = true for the account above:
---   SELECT u.email, s.is_store_admin
---   FROM public.user_settings s
---   JOIN auth.users u ON u.id = s.user_id
---   WHERE u.email = 'mailid@gmail.com';
+-- Verify (should return is_store_admin = true):
+--   select u.email, s.is_store_admin
+--   from public.user_security s join auth.users u on u.id = s.user_id
+--   where u.email = 'mailid@gmail.com';
+--
+-- To revoke admin:
+--   update public.user_security set is_store_admin = false
+--   where user_id = (select id from auth.users where email = 'mailid@gmail.com');

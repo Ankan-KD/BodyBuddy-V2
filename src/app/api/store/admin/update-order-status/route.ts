@@ -7,7 +7,8 @@ import { sendOrderStatusUpdateEmail } from "@/lib/orderStatusEmail";
 // BB Store Admin — Update Order Status (Phase 2: Status-Update Emails)
 //
 // Server-side route so we can:
-//   1. Verify the caller is an authenticated admin.
+//   1. Verify the caller is an authenticated admin (via user_security,
+//      migration 017).
 //   2. Read the PREVIOUS status before writing the new one.
 //   3. Guard against duplicate updates (idempotency).
 //   4. Send the status-update email — after the DB write succeeds —
@@ -39,14 +40,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
 
-  // ── 2. Verify caller is an admin ─────────────────────────────────────
-  const { data: settings, error: settingsError } = await supabaseAdmin
-    .from("user_settings")
+  // ── 2. Verify caller is an admin (reads user_security, migration 017) ─
+  const { data: security, error: securityError } = await supabaseAdmin
+    .from("user_security")
     .select("is_store_admin")
     .eq("user_id", user.id)
     .single();
 
-  if (settingsError || !settings?.is_store_admin) {
+  if (securityError || !security?.is_store_admin) {
     return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
   }
 
@@ -86,35 +87,23 @@ export async function POST(request: Request) {
   const previousStatus = currentRow.status as OrderStatus;
 
   // ── 5. Idempotency guard — status already set, nothing to do ─────────
-  //
-  // This prevents a duplicate email when:
-  //   • the admin clicks the same button twice in quick succession,
-  //   • the browser retries the request,
-  //   • the admin refreshes the page mid-flight.
-  //
   if (previousStatus === typedStatus) {
-    // Return success without touching the DB or sending an email.
     return NextResponse.json({ ok: true, alreadySet: true });
   }
 
   // ── 6. Write the new status to the database ───────────────────────────
-  //
-  // The `.eq("status", previousStatus)` guard makes this a compare-and-swap:
-  // if another request already changed the status between our read (step 4)
-  // and this write, the update matches zero rows and we skip the email so
-  // the customer never receives a duplicate.
-  //
+  // .eq("status", previousStatus) is a compare-and-swap: if another request
+  // already changed the status between our read and this write, the update
+  // matches zero rows and we skip the email (no duplicate for the customer).
   const { data: updatedRows, error: updateError } = await supabaseAdmin
     .from("store_orders")
     .update({ status: typedStatus, updated_at: new Date().toISOString() })
     .eq("id", orderId)
-    .eq("status", previousStatus)   // compare-and-swap: only update if still at previousStatus
+    .eq("status", previousStatus)
     .select("*, store_order_items(*)")
     .single();
 
   if (updateError || !updatedRows) {
-    // Either a real DB error, or a racing update won.
-    // Re-read to distinguish the two cases.
     const { data: recheck } = await supabaseAdmin
       .from("store_orders")
       .select("status")
@@ -122,7 +111,6 @@ export async function POST(request: Request) {
       .single();
 
     if (recheck?.status === typedStatus) {
-      // Another request beat us to this exact transition — no email needed.
       return NextResponse.json({ ok: true, alreadySet: true });
     }
 
@@ -132,15 +120,6 @@ export async function POST(request: Request) {
   }
 
   // ── 7. DB write succeeded — now send the status-update email ─────────
-  //
-  // sendOrderStatusUpdateEmail() never throws. A mailer failure is logged
-  // but must NOT roll back or invalidate the already-saved status change.
-  //
-  // PERF: this email has no PDF attachment anymore (see orderStatusEmail.ts),
-  // but Gmail SMTP round-trips still take a few seconds — enough to make
-  // the admin dashboard feel laggy on every status click. `after()` sends
-  // the response to the admin immediately and does the email send once
-  // the response has gone out.
   const updatedOrder = orderFromRow(updatedRows as OrderRow);
   after(() => sendOrderStatusUpdateEmail(updatedOrder, previousStatus));
 

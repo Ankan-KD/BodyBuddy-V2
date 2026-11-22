@@ -6,13 +6,15 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
  * Authorization: Bearer <access_token>
  *
  * Called from /set-password right after supabase.auth.updateUser({ password })
- * succeeds. Records password_set=true via the mark_password_set() RPC
- * (see supabase/016_password_set_flag.sql) so /api/otp/check-password can
+ * succeeds. Records password_set=true via the mark_password_set() DB function
+ * (defined in supabase, migration 003) so /api/otp/check-password can
  * report hasPassword based on real user intent, not on whether
  * auth.users.encrypted_password happens to be non-null — manual signup
  * writes a random temp password there at account-creation time, so that
  * column alone can't tell "user chose this" apart from "we generated junk
  * to satisfy the signUp() API."
+ *
+ * mark_password_set() writes to user_security (migration 003/017).
  */
 export async function POST(req: NextRequest) {
   if (!supabaseAdmin) {

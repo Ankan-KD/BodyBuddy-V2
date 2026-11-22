@@ -2,8 +2,9 @@
 
 // ════════════════════════════════════════════════════════════════════════
 // Admin — Product Catalogue
-// The DB is the source of truth. CSV is only for initial/bulk import.
-// From here admins can view & edit all catalogue product info.
+// product_catalog.csv is the source of truth: edit it, then use "Import CSV"
+// to add new products and update existing ones (matched on product_id).
+// Inline edits made here are overwritten by the next import of that product.
 // ════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
@@ -20,6 +21,8 @@ import {
   fetchAllProductTypes,
   updateCatalogueProduct,
   importCatalogueFromRows,
+  validateCatalogueHeaders,
+  type CatalogueImportResult,
   type CatalogueProduct,
   type CatalogueVariant,
   type ProductGroup,
@@ -27,6 +30,7 @@ import {
   type CatalogueImportRow,
 } from "@/lib/catalogueAdminApi";
 import { adminFetchImportedCatalogIds } from "@/lib/storeAdminApi";
+import { parseCsvObjects } from "@/lib/csv";
 import { useRouter } from "next/navigation";
 
 const PAGE_SIZE = 25;
@@ -672,35 +676,69 @@ function DetailPanel({
 
 function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [file, setFile] = useState<File | null>(null);
+  const [rows, setRows] = useState<CatalogueImportRow[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-  const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; stage: string } | null>(null);
+  const [result, setResult] = useState<CatalogueImportResult | null>(null);
+
+  const productCount = new Set(rows.map((r) => r.product_id?.trim()).filter(Boolean)).size;
+  const variantCount = rows.filter((r) => r.variant_id?.trim()).length;
+
+  // Parse + check the file as soon as it's chosen, so a wrong file is caught
+  // here — with a clear message — rather than after a silent "0 imported".
+  async function handleFile(f: File | null) {
+    setFile(f);
+    setRows([]);
+    setFileError(null);
+    if (!f) return;
+    try {
+      const { headers, rows: parsed } = parseCsvObjects(await f.text());
+      const problem = validateCatalogueHeaders(headers);
+      if (problem) {
+        setFileError(problem);
+        return;
+      }
+      if (parsed.length === 0) {
+        setFileError("The file has a header row but no product rows.");
+        return;
+      }
+      setRows(parsed as unknown as CatalogueImportRow[]);
+    } catch (e) {
+      setFileError(`Could not read the file: ${(e as Error).message}`);
+    }
+  }
 
   async function handleImport() {
-    if (!file) return;
+    if (rows.length === 0) return;
     setImporting(true);
+    setProgress(null);
     try {
-      const text = await file.text();
-      const { parse } = await import("papaparse");
-      const parsed = parse<CatalogueImportRow>(text, { header: true, skipEmptyLines: true });
-      const res = await importCatalogueFromRows(parsed.data);
-      setResult(res);
+      setResult(
+        await importCatalogueFromRows(rows, (done, total, stage) => setProgress({ done, total, stage }))
+      );
     } catch (e) {
-      setResult({ imported: 0, errors: [(e as Error).message] });
+      setResult({ imported: 0, variants: 0, errors: [(e as Error).message], warnings: [] });
     }
     setImporting(false);
   }
+
+  const failed = result !== null && result.imported === 0;
+  const partial = result !== null && result.imported > 0 && result.errors.length > 0;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", padding: 16 }}>
       <div style={{ background: "var(--a-surface)", borderRadius: "var(--a-radius-lg)", border: "1px solid var(--a-border)", width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", padding: 24, boxSizing: "border-box" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>Bulk Import from CSV</div>
-          <button onClick={onClose} className="a-btn a-btn-ghost a-btn-icon a-btn-sm"><X style={{ width: 14, height: 14 }} /></button>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Import catalogue from CSV</div>
+          <button onClick={onClose} disabled={importing} className="a-btn a-btn-ghost a-btn-icon a-btn-sm"><X style={{ width: 14, height: 14 }} /></button>
         </div>
 
         <div className="a-alert a-alert-info" style={{ marginBottom: 16 }}>
           <Info style={{ width: 13, height: 13, flexShrink: 0 }} />
-          <span style={{ fontSize: 12 }}>CSV is only for initial and bulk import. The database is always the source of truth after import.</span>
+          <span style={{ fontSize: 12 }}>
+            New products are added and existing ones (same product_id) are updated from the file. Nothing is deleted, and existing groups and types keep their settings.
+          </span>
         </div>
 
         {!result ? (
@@ -709,35 +747,81 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: () =
               <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 6 }}>Select CSV file</label>
               <input
                 type="file"
-                accept=".csv"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                accept=".csv,text/csv"
+                disabled={importing}
+                onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
                 style={{ fontSize: 13 }}
               />
               <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 6 }}>
-                Expected columns: product_id, product_name, slug, brand, user_category, category, … (same as product_catalog.csv)
+                Same columns as product_catalog.csv — at minimum product_id and product_name. One row per variant.
               </div>
             </div>
+
+            {fileError && (
+              <div className="a-alert a-alert-error" style={{ marginBottom: 16 }}>
+                <AlertTriangle style={{ width: 13, height: 13, flexShrink: 0 }} />
+                <span style={{ fontSize: 12 }}>{fileError}</span>
+              </div>
+            )}
+
+            {file && !fileError && rows.length > 0 && !importing && (
+              <div className="a-alert a-alert-success" style={{ marginBottom: 16 }}>
+                <Check style={{ width: 13, height: 13, flexShrink: 0 }} />
+                <span style={{ fontSize: 12 }}>
+                  Ready: {productCount} product{productCount === 1 ? "" : "s"} and {variantCount} variant{variantCount === 1 ? "" : "s"} found in {file.name}.
+                </span>
+              </div>
+            )}
+
+            {importing && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                  {progress ? `${progress.stage}… ${progress.done} / ${progress.total}` : "Preparing…"}
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: "var(--a-border)", overflow: "hidden" }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: progress && progress.total > 0 ? `${Math.round((progress.done / progress.total) * 100)}%` : "0%",
+                      background: "var(--a-primary)",
+                      transition: "width 0.2s",
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: 11, color: "var(--a-text-3)", marginTop: 6 }}>Keep this window open until it finishes.</div>
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={onClose} className="a-btn a-btn-secondary">Cancel</button>
-              <button onClick={handleImport} disabled={!file || importing} className="a-btn a-btn-primary">
+              <button onClick={onClose} disabled={importing} className="a-btn a-btn-secondary">Cancel</button>
+              <button onClick={handleImport} disabled={rows.length === 0 || importing} className="a-btn a-btn-primary">
                 {importing ? <><RefreshCw style={{ width: 13, height: 13 }} className="animate-spin" /> Importing…</> : <><Upload style={{ width: 13, height: 13 }} /> Import</>}
               </button>
             </div>
           </>
         ) : (
           <>
-            <div className={`a-alert ${result.errors.length === 0 ? "a-alert-success" : "a-alert-warning"}`} style={{ marginBottom: 12 }}>
-              {result.errors.length === 0 ? <Check style={{ width: 13, height: 13 }} /> : <AlertTriangle style={{ width: 13, height: 13 }} />}
-              <span style={{ fontSize: 13 }}>{result.imported} products imported successfully.</span>
+            <div className={`a-alert ${failed ? "a-alert-error" : partial ? "a-alert-warning" : "a-alert-success"}`} style={{ marginBottom: 12 }}>
+              {failed || partial ? <AlertTriangle style={{ width: 13, height: 13, flexShrink: 0 }} /> : <Check style={{ width: 13, height: 13, flexShrink: 0 }} />}
+              <span style={{ fontSize: 13 }}>
+                {failed
+                  ? "Nothing was imported."
+                  : `${result.imported} product${result.imported === 1 ? "" : "s"} and ${result.variants} variant${result.variants === 1 ? "" : "s"} saved${partial ? `, ${result.errors.length} problem${result.errors.length === 1 ? "" : "s"} below` : " successfully"}.`}
+              </span>
             </div>
             {result.errors.length > 0 && (
               <div style={{ maxHeight: 160, overflowY: "auto", fontSize: 11, color: "var(--a-danger)", background: "var(--a-danger-bg)", border: "1px solid var(--a-danger-border)", borderRadius: "var(--a-radius)", padding: 10, marginBottom: 12 }}>
                 {result.errors.map((e, i) => <div key={i}>{e}</div>)}
               </div>
             )}
+            {result.warnings.length > 0 && (
+              <div style={{ maxHeight: 120, overflowY: "auto", fontSize: 11, color: "var(--a-text-2)", background: "var(--a-warning-bg)", border: "1px solid var(--a-warning-border)", borderRadius: "var(--a-radius)", padding: 10, marginBottom: 12 }}>
+                {result.warnings.map((w, i) => <div key={i}>{w}</div>)}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={onClose} className="a-btn a-btn-secondary">Close</button>
-              <button onClick={() => { onDone(); onClose(); }} className="a-btn a-btn-primary">View Catalogue</button>
+              {!failed && <button onClick={() => { onDone(); onClose(); }} className="a-btn a-btn-primary">View Catalogue</button>}
             </div>
           </>
         )}
@@ -832,7 +916,7 @@ export default function AdminCatalogPage() {
         <div>
           <h2 className="a-page-title">Product Catalogue</h2>
           <p className="a-page-subtitle">
-            The database is the source of truth. Edit product info inline. CSV is for bulk import only.
+            Your product_catalog.csv is the source of truth — import it here to add or update products. Inline edits are overwritten the next time that product is imported.
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>

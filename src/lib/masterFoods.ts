@@ -1,19 +1,22 @@
-// Master Food Database — a curated, read-only nutrition reference bundled
-// into the app at build time (src/data/masterFoodDatabase.json, generated
-// from src/data/master-food-database.source.csv).
+// Master Food Database — a curated, read-only nutrition reference.
 //
-// This is intentionally NOT a database table the running app can write to.
-// It's a static JSON import: there is no code path anywhere in this app
-// that mutates it, so it can't be tampered with by users, the AI, or a
-// compromised client — the only way it changes is by re-generating the
-// JSON from the source CSV and redeploying. See src/data/README.md for
-// how to regenerate it.
+// The ONE source of truth is src/data/master-food-database.source.csv. It is
+// bundled into the app at build time and parsed here on first use. There is
+// no generated/derived copy anywhere (no JSON build step), so what you see in
+// the CSV is exactly what the app uses.
+//
+// This is intentionally NOT a database table the running app can write to:
+// nothing at runtime — not a user, the AI, or a compromised client — can
+// modify it. To change it, edit the CSV (by hand, or with a script such as
+// scripts/merge_indb.py) and redeploy. See src/data/README.md.
 //
 // Used to (a) ground the AI's nutrition estimates in real data instead of
 // letting it guess from scratch, and (b) give the no-Gemini-key fallback
-// path a way to recognize common dishes it otherwise couldn't handle.
+// path a way to recognize common dishes it otherwise couldn't handle, and
+// (c) power the "Add to Diet" / manual-log food pickers and onboarding.
 
-import raw from "@/data/masterFoodDatabase.json";
+import masterFoodsCsv from "@/data/master-food-database.source.csv";
+import { parseCsvObjects } from "./csv";
 import { CATEGORY_ICON_KEYS } from "./iconKeys";
 import type { FoodCategory, FoodKind, Unit } from "./types";
 
@@ -49,18 +52,140 @@ export interface MasterFoodEntry {
   ingredients: string[];
 }
 
-const MASTER_FOODS = raw as MasterFoodEntry[];
+// ── CSV -> entries ────────────────────────────────────────────────────────
 
-// Lowercased (name + localName + aliases) list per entry, built once, for
-// fast exact-substring matching.
-const INDEX: { entry: MasterFoodEntry; terms: string[] }[] = MASTER_FOODS.map((entry) => ({
-  entry,
-  terms: [
-    entry.name.toLowerCase(),
-    ...(entry.localName ? [entry.localName.toLowerCase()] : []),
-    ...entry.aliases.map((a) => a.toLowerCase()),
-  ],
-}));
+function num(v: string | undefined): number {
+  const n = parseFloat((v ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+function numOrNull(v: string | undefined): number | null {
+  const t = (v ?? "").trim();
+  if (!t) return null;
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+function splitList(v: string | undefined): string[] {
+  return (v ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Turns the Master Food Database CSV text into entries. Exported so the
+ * format is easy to test; the app itself only calls it once, via getDb().
+ *
+ * Tolerant on purpose, because the CSV is edited by hand and by scripts:
+ *  - unknown extra columns are ignored, and `local_name`, `ingredients` and
+ *    `source` may be absent entirely;
+ *  - the sugar column may be `free_sugars_g`, `total_sugars_g` or `sugar_g`;
+ *  - a blank macro/micro cell counts as 0; a blank serving size / weight is
+ *    null;
+ *  - a row with a missing/invalid id or an empty food_name is skipped, and a
+ *    repeated id keeps the first row — both reported once in the console
+ *    rather than crashing the app over one bad row.
+ */
+export function parseMasterFoodsCsv(text: string): MasterFoodEntry[] {
+  const { rows } = parseCsvObjects(text);
+  const out: MasterFoodEntry[] = [];
+  const seen = new Set<number>();
+  const skipped: string[] = [];
+
+  rows.forEach((r, i) => {
+    const line = i + 2; // +1 for the header, +1 for 1-based line numbers
+    const id = Number.parseInt((r.id ?? "").trim(), 10);
+    const name = (r.food_name ?? "").trim();
+
+    if (!Number.isInteger(id) || !name) {
+      skipped.push(`line ${line}: missing id or food_name`);
+      return;
+    }
+    if (seen.has(id)) {
+      skipped.push(`line ${line}: duplicate id ${id} (kept the first)`);
+      return;
+    }
+    seen.add(id);
+
+    out.push({
+      id,
+      category: (r.category ?? "").trim(),
+      subcategory: (r.subcategory ?? "").trim(),
+      name,
+      localName: (r.local_name ?? "").trim(),
+      aliases: splitList(r.aliases),
+      servingSize: numOrNull(r.serving_size),
+      servingUnit: (r.serving_unit ?? "").trim(),
+      weightG: numOrNull(r.weight_g),
+      calories: num(r.calories_kcal),
+      protein: num(r.protein_g),
+      carbs: num(r.carbohydrates_g),
+      fat: num(r.fat_g),
+      fiber: num(r.dietary_fiber_g),
+      sugar: num(r.free_sugars_g ?? r.total_sugars_g ?? r.sugar_g),
+      satFat: num(r.saturated_fat_g),
+      sodiumMg: num(r.sodium_mg),
+      cholesterolMg: num(r.cholesterol_mg),
+      foodType: (r.food_type ?? "").trim(),
+      ingredients: splitList(r.ingredients),
+    });
+  });
+
+  if (skipped.length > 0) {
+    console.warn(
+      `[masterFoods] Skipped ${skipped.length} row(s) in master-food-database.source.csv:\n  ` +
+        skipped.slice(0, 10).join("\n  ") +
+        (skipped.length > 10 ? `\n  …and ${skipped.length - 10} more` : "")
+    );
+  }
+  return out;
+}
+
+// ── Lazy, memoized index ──────────────────────────────────────────────────
+// Parsing ~3.6k rows and building the search indexes costs a few tens of ms,
+// so it happens on first use (a search, a lookup, onboarding) rather than
+// when a page merely imports this module. Built once per page load / server
+// instance, then reused.
+
+interface IndexedEntry {
+  entry: MasterFoodEntry;
+  terms: string[];
+}
+
+interface MasterDb {
+  foods: MasterFoodEntry[];
+  byId: Map<number, MasterFoodEntry>;
+  /** Lowercased (name + localName + aliases) per entry, for exact-substring matching. */
+  index: IndexedEntry[];
+  /** Same terms run through normalizeForMatch(), for the spelling-variant fallback. */
+  normalizedIndex: IndexedEntry[];
+}
+
+let _db: MasterDb | null = null;
+
+function getDb(): MasterDb {
+  if (_db) return _db;
+
+  const foods = parseMasterFoodsCsv(masterFoodsCsv);
+
+  const index: IndexedEntry[] = foods.map((entry) => ({
+    entry,
+    terms: [
+      entry.name.toLowerCase(),
+      ...(entry.localName ? [entry.localName.toLowerCase()] : []),
+      ...entry.aliases.map((a) => a.toLowerCase()),
+    ],
+  }));
+
+  const normalizedIndex: IndexedEntry[] = index.map(({ entry, terms }) => ({
+    entry,
+    terms: Array.from(new Set(terms.map(normalizeForMatch).filter((t) => t.length >= 3))),
+  }));
+
+  _db = { foods, byId: new Map(foods.map((e) => [e.id, e])), index, normalizedIndex };
+  return _db;
+}
 
 // ── Phonetic/transliteration normalization ───────────────────────────────
 // Exact substring matching above misses spelling variants that are
@@ -93,11 +218,6 @@ function normalizeForMatch(s: string): string {
     .trim();
 }
 
-const NORMALIZED_INDEX: { entry: MasterFoodEntry; terms: string[] }[] = INDEX.map(({ entry, terms }) => ({
-  entry,
-  terms: Array.from(new Set(terms.map(normalizeForMatch).filter((t) => t.length >= 3))),
-}));
-
 /**
  * Finds Master Food Database entries whose name/alias appears in the given
  * free text, longest match first (so "chicken biryani" prefers the
@@ -106,6 +226,7 @@ const NORMALIZED_INDEX: { entry: MasterFoodEntry; terms: string[] }[] = INDEX.ma
  * candidates, not every partial hit.
  */
 export function findMasterFoodMatches(text: string, limit = 8): MasterFoodEntry[] {
+  const { index: INDEX, normalizedIndex: NORMALIZED_INDEX } = getDb();
   const lower = text.toLowerCase();
   const hits: { entry: MasterFoodEntry; termLength: number }[] = [];
 
@@ -171,6 +292,8 @@ export function findBestMasterFoodMatch(text: string): MasterFoodEntry | null {
 export function searchMasterFoods(query: string, limit = 20): MasterFoodEntry[] {
   const q = query.trim().toLowerCase();
   if (q.length < 2) return [];
+
+  const { index: INDEX, normalizedIndex: NORMALIZED_INDEX } = getDb();
 
   const starts: MasterFoodEntry[] = [];
   const contains: MasterFoodEntry[] = [];
@@ -346,11 +469,11 @@ export function formatMasterFoodsForPrompt(entries: MasterFoodEntry[]): string {
 //
 // Everything else (calories, protein, carbs, fats, unit, kind, aliases,
 // category, baseIngredient) is derived at runtime from the master DB via
-// masterFoodToDietPrefill(), so updating the CSV/JSON automatically flows
+// masterFoodToDietPrefill(), so updating the CSV automatically flows
 // through without touching this file.
 //
 // To add, remove, or reorder suggestions: edit this array only.
-// To change nutrition values: update masterFoodDatabase.json (regenerate from CSV).
+// To change nutrition values: edit src/data/master-food-database.source.csv.
 
 export interface OnboardingSuggestionConfig {
   masterFoodId: number;
@@ -406,7 +529,7 @@ export interface OnboardingSuggestion extends DietPrefill {
 /**
  * Resolves ONBOARDING_SUGGESTION_CONFIG into fully-populated suggestions by
  * looking each masterFoodId up in the master DB and running
- * masterFoodToDietPrefill(). Nutrition values come entirely from the JSON —
+ * masterFoodToDietPrefill(). Nutrition values come entirely from the CSV —
  * nothing is hardcoded here.
  *
  * Entries with masterFoodId === 0 (no DB match) receive a safe generic
@@ -414,7 +537,7 @@ export interface OnboardingSuggestion extends DietPrefill {
  * adjust values after onboarding via the Foods page.
  */
 export function getOnboardingSuggestions(): OnboardingSuggestion[] {
-  const byId = new Map<number, MasterFoodEntry>(MASTER_FOODS.map((e) => [e.id, e]));
+  const { byId } = getDb();
 
   return ONBOARDING_SUGGESTION_CONFIG.map((cfg) => {
     const entry = byId.get(cfg.masterFoodId);

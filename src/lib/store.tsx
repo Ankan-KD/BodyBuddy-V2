@@ -170,12 +170,41 @@ function recentFoodFromRow(r: RecentFoodRow): RecentFoodTemplate {
   };
 }
 
+// A combo's items live in their own table (public.meal_combo_items) with real
+// foreign keys to foods / recent_foods, so deleting a food removes it from
+// every combo at the database level. Fetched nested: meal_combos + items.
+interface ComboItemRow {
+  food_id: string | null;
+  recent_food_id: string | null;
+  quantity: number | string | null;
+  sort_order: number | null;
+}
+
 interface ComboRow {
   id: string;
   name: string;
   icon: string;
-  items: { foodId?: string; recentFoodId?: string; quantity: number }[] | null;
   sort_order: number;
+  meal_combo_items?: ComboItemRow[] | null;
+}
+
+// Rows for meal_combo_items. Items pointing at a not-yet-persisted (optimistic
+// "temp-…") food can't satisfy the foreign key, so they are skipped — the
+// same outcome as the old behaviour of silently skipping missing foods.
+function comboItemRows(comboId: string, userId: string, items: MealCombo["items"]) {
+  return items
+    .filter((i) => {
+      const ref = i.foodId ?? i.recentFoodId;
+      return typeof ref === "string" && !ref.startsWith("temp-");
+    })
+    .map((i, idx) => ({
+      combo_id: comboId,
+      user_id: userId,
+      food_id: i.foodId ?? null,
+      recent_food_id: i.foodId ? null : (i.recentFoodId ?? null),
+      quantity: i.quantity,
+      sort_order: idx,
+    }));
 }
 
 function comboFromRow(r: ComboRow): MealCombo {
@@ -183,15 +212,14 @@ function comboFromRow(r: ComboRow): MealCombo {
     id: r.id,
     name: r.name,
     icon: r.icon || "UtensilsCrossed",
-    items: Array.isArray(r.items)
-      ? r.items
-          .filter((i) => i && (typeof i.foodId === "string" || typeof i.recentFoodId === "string"))
-          .map((i) => ({
-            foodId: typeof i.foodId === "string" ? i.foodId : undefined,
-            recentFoodId: typeof i.recentFoodId === "string" ? i.recentFoodId : undefined,
-            quantity: Number(i.quantity) || 0,
-          }))
-      : [],
+    items: (Array.isArray(r.meal_combo_items) ? [...r.meal_combo_items] : [])
+      .filter((i) => i && (typeof i.food_id === "string" || typeof i.recent_food_id === "string"))
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      .map((i) => ({
+        foodId: typeof i.food_id === "string" ? i.food_id : undefined,
+        recentFoodId: typeof i.recent_food_id === "string" ? i.recent_food_id : undefined,
+        quantity: Number(i.quantity) || 0,
+      })),
     sortOrder: r.sort_order,
   };
 }
@@ -403,7 +431,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           .eq("user_id", uid)
           .gte("date", sinceISO),
         supabase!.from("weight_entries").select("*").eq("user_id", uid).order("date", { ascending: true }),
-        supabase!.from("meal_combos").select("*").eq("user_id", uid).order("sort_order", { ascending: true }),
+        supabase!
+          .from("meal_combos")
+          .select("*, meal_combo_items(*)")
+          .eq("user_id", uid)
+          .order("sort_order", { ascending: true }),
         supabase!.from("milestones").select("*").eq("user_id", uid),
         supabase!.from("recent_foods").select("*").eq("user_id", uid).order("created_at", { ascending: false }),
         supabase!
@@ -478,6 +510,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "weight_entries", filter: `user_id=eq.${uid}` }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "user_settings", filter: `user_id=eq.${uid}` }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "meal_combos", filter: `user_id=eq.${uid}` }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "meal_combo_items", filter: `user_id=eq.${uid}` }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "milestones", filter: `user_id=eq.${uid}` }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "recent_foods", filter: `user_id=eq.${uid}` }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "recent_food_logs", filter: `user_id=eq.${uid}` }, () => load())
@@ -743,30 +776,37 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const optimistic: MealCombo = { ...combo, id: tempId, sortOrder };
     setState((s) => ({ ...s, combos: [...s.combos, optimistic] }));
 
-    supabase
-      .from("meal_combos")
-      .insert({
-        user_id: user.id,
-        name: combo.name,
-        icon: combo.icon,
-        items: combo.items,
-        sort_order: sortOrder,
-      })
-      .select()
-      .single()
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("addCombo failed", error.message);
-          setState((s) => ({ ...s, combos: s.combos.filter((c) => c.id !== tempId) }));
-          return;
+    const client = supabase;
+    const userId = user.id;
+    const fail = (msg: string) => {
+      console.error("addCombo failed", msg);
+      setState((s) => ({ ...s, combos: s.combos.filter((c) => c.id !== tempId) }));
+    };
+
+    void (async () => {
+      const { data, error } = await client
+        .from("meal_combos")
+        .insert({ user_id: userId, name: combo.name, icon: combo.icon, sort_order: sortOrder })
+        .select()
+        .single();
+      if (error || !data) return fail(error?.message ?? "no row returned");
+
+      const rows = comboItemRows(data.id as string, userId, combo.items);
+      if (rows.length > 0) {
+        const { error: itemsError } = await client.from("meal_combo_items").insert(rows);
+        if (itemsError) {
+          // Best-effort rollback so a half-created, empty combo isn't left behind.
+          await client.from("meal_combos").delete().eq("id", data.id as string).eq("user_id", userId);
+          return fail(itemsError.message);
         }
-        if (data) {
-          setState((s) => ({
-            ...s,
-            combos: s.combos.map((c) => (c.id === tempId ? comboFromRow(data as ComboRow) : c)),
-          }));
-        }
-      });
+      }
+      setState((s) => ({
+        ...s,
+        combos: s.combos.map((c) =>
+          c.id === tempId ? comboFromRow({ ...(data as ComboRow), meal_combo_items: rows }) : c,
+        ),
+      }));
+    })();
   }
 
   function updateCombo(id: string, patch: Partial<Omit<MealCombo, "id" | "sortOrder">>) {
@@ -778,15 +818,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const row: Record<string, unknown> = {};
     if (patch.name !== undefined) row.name = patch.name;
     if (patch.icon !== undefined) row.icon = patch.icon;
-    if (patch.items !== undefined) row.items = patch.items;
-    supabase
-      .from("meal_combos")
-      .update(row)
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .then(({ error }) => {
+    const client = supabase;
+    const userId = user.id;
+    const newItems = patch.items;
+
+    void (async () => {
+      if (Object.keys(row).length > 0) {
+        const { error } = await client.from("meal_combos").update(row).eq("id", id).eq("user_id", userId);
         if (error) console.error("updateCombo failed", error.message);
-      });
+      }
+      if (newItems === undefined || id.startsWith("temp-")) return;
+
+      // Insert the new item set first, then remove the old rows, so a failed
+      // insert leaves the combo's previous items intact instead of empty.
+      const rows = comboItemRows(id, userId, newItems);
+      let keepIds: string[] = [];
+      if (rows.length > 0) {
+        const { data, error } = await client.from("meal_combo_items").insert(rows).select("id");
+        if (error) {
+          console.error("updateCombo items failed", error.message);
+          return;
+        }
+        keepIds = (data ?? []).map((r) => r.id as string);
+      }
+      let del = client.from("meal_combo_items").delete().eq("combo_id", id).eq("user_id", userId);
+      if (keepIds.length > 0) del = del.not("id", "in", `(${keepIds.join(",")})`);
+      const { error: delError } = await del;
+      if (delError) console.error("updateCombo cleanup failed", delError.message);
+    })();
   }
 
   function duplicateCombo(id: string) {

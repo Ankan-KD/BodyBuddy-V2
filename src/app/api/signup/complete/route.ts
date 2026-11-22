@@ -10,8 +10,11 @@ import { consumeSignupVerifyTicket } from "@/lib/otpStore";
  * Called after manual-email-signup OTP is verified (verifyOtp returns a
  * verifyToken for signup_verify). This route:
  *   1. Validates the verifyToken (single-use, short-lived).
- *   2. Clears pending_email_verify on the user's user_settings row.
+ *   2. Clears pending_email_verify on the user's user_security row.
  *   3. Returns { success: true } so the client can proceed to /set-password.
+ *
+ * NOTE: writes to user_security only (migration 017+018). The old
+ * user_settings columns have been dropped by 018.
  */
 export async function POST(req: NextRequest) {
   if (!supabaseAdmin) {
@@ -47,17 +50,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: result.error }, { status: result.status ?? 400 });
   }
 
-  // Clear pending_email_verify in user_settings.
-  const { error: settingsErr } = await supabaseAdmin
-    .from("user_settings")
+  // Clear pending_email_verify in user_security (migration 017).
+  const { error: securityErr } = await supabaseAdmin
+    .from("user_security")
     .update({ pending_email_verify: false })
     .eq("user_id", userData.user.id);
 
-  if (settingsErr) {
-    // The user_settings row may not exist yet (upserted later during onboarding).
+  if (securityErr) {
+    // The user_security row may not exist yet (created later by trigger).
     // Try an upsert with the minimal required fields.
     await supabaseAdmin
-      .from("user_settings")
+      .from("user_security")
       .upsert(
         { user_id: userData.user.id, pending_email_verify: false },
         { onConflict: "user_id", ignoreDuplicates: false }

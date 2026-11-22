@@ -28,9 +28,9 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Backend-backed admin check — reads from user_settings, not just frontend state
+    // Backend-backed admin check — reads from user_security (migration 017)
     supabase
-      .from("user_settings")
+      .from("user_security")
       .select("is_store_admin")
       .eq("user_id", user.id)
       .single()
@@ -62,3 +62,4 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
 export function useAdminAuth() {
   return useContext(AdminAuthContext);
 }
+

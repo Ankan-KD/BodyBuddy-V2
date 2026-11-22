@@ -500,153 +500,336 @@ function numOrNull(s: string | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
+export interface CatalogueImportResult {
+  /** Products saved (inserted or updated). */
+  imported: number;
+  /** Variants saved (inserted or updated). */
+  variants: number;
+  /** Things that failed and were NOT saved. */
+  errors: string[];
+  /** Things that were skipped or auto-handled; the rest of the file still imported. */
+  warnings: string[];
+}
+
+/** (done, total, what's happening) — lets the UI show a progress bar. */
+export type CatalogueImportProgress = (done: number, total: number, stage: string) => void;
+
+/** Columns a catalogue CSV must have. Everything else is optional. */
+const CATALOGUE_REQUIRED_COLUMNS = ["product_id", "product_name"];
+
 /**
- * Bulk-import CSV rows into product_catalogue + product_catalogue_variants.
- * Creates product_groups and product_types as needed.
- * Uses upsert so re-running is safe.
+ * Checks a catalogue CSV's header row *before* anything touches the
+ * database. Returns a message to show the admin, or null if it looks right.
+ * `headers` should already be trimmed/lower-cased (parseCsvObjects does that).
+ */
+export function validateCatalogueHeaders(headers: string[]): string | null {
+  const missing = CATALOGUE_REQUIRED_COLUMNS.filter((c) => !headers.includes(c));
+  if (missing.length === 0) return null;
+  return (
+    `This doesn't look like a catalogue CSV — missing column${missing.length > 1 ? "s" : ""}: ` +
+    `${missing.join(", ")}. Use the same columns as src/data/product_catalog.csv.`
+  );
+}
+
+// How many rows go to the database per request. Products carry long text and
+// image URLs, so they get a smaller batch than variants.
+const PRODUCT_CHUNK = 50;
+const VARIANT_CHUNK = 200;
+
+function isTrue(v: string | undefined): boolean {
+  return ["true", "1", "yes"].includes((v ?? "").trim().toLowerCase());
+}
+
+/** Reads `table` as a name → id map. Returns the error message on failure. */
+async function fetchNameIdMap(
+  table: "product_groups" | "product_types"
+): Promise<{ map: Map<string, string>; error: string | null }> {
+  const map = new Map<string, string>();
+  if (!supabase) return { map, error: "No database connection" };
+  const { data, error } = await supabase.from(table).select("id, name");
+  if (error) return { map, error: error.message };
+  for (const r of (data ?? []) as { id: string; name: string }[]) map.set(r.name, r.id);
+  return { map, error: null };
+}
+
+/**
+ * Bulk-imports CSV rows into product_catalogue + product_catalogue_variants.
+ *
+ * The CSV is the source of truth: running this again with an edited file
+ * updates existing products (matched on product_id) and variants (matched on
+ * product + variant_id) and adds new ones, so re-importing is always safe.
+ * It never deletes anything — a product removed from the CSV stays in the
+ * database until an admin removes it.
+ *
+ * Product groups / types named in the CSV are created if missing, but
+ * existing ones are left exactly as they are (so icons and ordering an admin
+ * set on /admin/categories survive a re-import).
+ *
+ * Rows are sent in batches (a few hundred requests became ~10), and if a
+ * batch is rejected it is retried row-by-row so one bad product can't block
+ * the rest — each failure is reported by product_id.
  */
 export async function importCatalogueFromRows(
-  rows: CatalogueImportRow[]
-): Promise<{ imported: number; errors: string[] }> {
-  if (!supabase) return { imported: 0, errors: ["No database connection"] };
-
-  const errors: string[] = [];
-
-  // ── 1. Collect distinct groups + types, upsert them ─────────────────
-  const groupNames = new Set(rows.map((r) => r.user_category?.trim()).filter(Boolean));
-  const typeNames  = new Set(rows.map((r) => r.category?.trim()).filter(Boolean));
-
-  // Upsert groups
-  const groupInserts = Array.from(groupNames).map((name) => ({
-    name,
-    slug: slugify(name),
-    icon_key: "Tag",
-  }));
-  if (groupInserts.length > 0) {
-    await supabase
-      .from("product_groups")
-      .upsert(groupInserts, { onConflict: "name", ignoreDuplicates: false });
+  rows: CatalogueImportRow[],
+  onProgress?: CatalogueImportProgress
+): Promise<CatalogueImportResult> {
+  const result: CatalogueImportResult = { imported: 0, variants: 0, errors: [], warnings: [] };
+  if (!supabase) {
+    result.errors.push("No database connection");
+    return result;
   }
 
-  // Upsert types
-  const typeInserts = Array.from(typeNames).map((name) => ({
-    name,
-    slug: slugify(name),
-  }));
-  if (typeInserts.length > 0) {
-    await supabase
-      .from("product_types")
-      .upsert(typeInserts, { onConflict: "name", ignoreDuplicates: false });
-  }
-
-  // Fetch fresh ID maps
-  const [groups, types] = await Promise.all([fetchAllProductGroups(), fetchAllProductTypes()]);
-  const groupMap = new Map(groups.map((g) => [g.name, g.id]));
-  const typeMap  = new Map(types.map((t) => [t.name, t.id]));
-
-  // ── 2. Group rows by product_id ───────────────────────────────────────
+  // ── 1. Group rows by product_id (file order preserved) ───────────────
   const productMap = new Map<string, CatalogueImportRow[]>();
+  let skippedNoId = 0;
   for (const row of rows) {
-    if (!row.product_id?.trim()) continue;
-    if (!productMap.has(row.product_id)) productMap.set(row.product_id, []);
-    productMap.get(row.product_id)!.push(row);
+    const pid = row.product_id?.trim();
+    if (!pid) {
+      skippedNoId++;
+      continue;
+    }
+    const list = productMap.get(pid);
+    if (list) list.push(row);
+    else productMap.set(pid, [row]);
+  }
+  if (skippedNoId > 0) {
+    result.warnings.push(`${skippedNoId} row(s) had no product_id and were skipped.`);
+  }
+  if (productMap.size === 0) {
+    result.errors.push("No rows with a product_id were found — nothing to import.");
+    return result;
   }
 
-  let imported = 0;
-
-  for (const [productId, productRows] of productMap) {
+  // ── 2. Make sure the groups / types exist (never overwrite existing) ──
+  // ON CONFLICT DO NOTHING: a re-import must not reset an admin's icon/slug.
+  const groupNames = new Set<string>();
+  const typeNames = new Set<string>();
+  for (const [, productRows] of productMap) {
     const first = productRows[0];
+    const g = first.user_category?.trim();
+    const t = first.category?.trim();
+    if (g) groupNames.add(g);
+    if (t) typeNames.add(t);
+  }
+
+  if (groupNames.size > 0) {
+    const { error } = await supabase
+      .from("product_groups")
+      .upsert(
+        Array.from(groupNames).map((name) => ({ name, slug: slugify(name), icon_key: "Tag" })),
+        { onConflict: "name", ignoreDuplicates: true }
+      );
+    if (error) {
+      result.errors.push(`Could not save product groups: ${error.message}`);
+      return result;
+    }
+  }
+  if (typeNames.size > 0) {
+    const { error } = await supabase
+      .from("product_types")
+      .upsert(
+        Array.from(typeNames).map((name) => ({ name, slug: slugify(name) })),
+        { onConflict: "name", ignoreDuplicates: true }
+      );
+    if (error) {
+      result.errors.push(`Could not save product types: ${error.message}`);
+      return result;
+    }
+  }
+
+  const [groups, types] = await Promise.all([
+    fetchNameIdMap("product_groups"),
+    fetchNameIdMap("product_types"),
+  ]);
+  if (groups.error || types.error) {
+    result.errors.push(`Could not read groups/types: ${groups.error ?? types.error}`);
+    return result;
+  }
+
+  // ── 3. Build one payload per product ──────────────────────────────────
+  interface Entry {
+    pid: string;
+    payload: Record<string, unknown>;
+    rows: CatalogueImportRow[];
+  }
+  const entries: Entry[] = [];
+  const slugOwner = new Map<string, string>();
+
+  for (const [pid, productRows] of productMap) {
+    const first = productRows[0];
+    const name = first.product_name?.trim() ?? "";
+    if (!name) {
+      result.errors.push(`Product ${pid}: product_name is empty — skipped.`);
+      continue;
+    }
+
+    const slug = first.slug?.trim() || slugify(name);
+    const owner = slugOwner.get(slug);
+    if (owner) {
+      result.errors.push(`Product ${pid}: slug "${slug}" is already used by ${owner} in this file — skipped.`);
+      continue;
+    }
+    slugOwner.set(slug, pid);
+
     const imageUrls = [
       first.primary_image_url,
       first.image_url_2,
       first.image_url_3,
       first.image_url_4,
       first.image_url_5,
-    ].filter(Boolean) as string[];
+    ]
+      .map((u) => u?.trim())
+      .filter(Boolean) as string[];
 
-    const productPayload = {
-      product_id:       productId,
-      product_name:     first.product_name?.trim() ?? "",
-      slug:             first.slug?.trim() || slugify(first.product_name ?? productId),
-      brand:            first.brand?.trim() ?? "",
-      product_group_id: groupMap.get(first.user_category?.trim()) ?? null,
-      product_type_id:  typeMap.get(first.category?.trim())       ?? null,
-      goal_tags:        normalizeGoals(first.goals ?? ""),
-      aim_tags:         parseTags(first.aim ?? ""),
-      search_tags:      parseTags(first.search_tags ?? ""),
-      short_description:  first.short_description?.trim()  ?? "",
-      full_description:   first.full_description?.trim()   ?? "",
-      usage_information:  first.usage_information?.trim()  ?? "",
-      ingredients:        first.ingredients?.trim()        ?? "",
-      warnings_allergens: first.warnings_allergens?.trim() ?? "",
-      image_urls:         imageUrls,
-      serving_size_label: first.serving_size_label?.trim() ?? "",
-      serving_size_g:     numOrNull(first.serving_size_g),
-      calories:           numOrNull(first.calories),
-      protein_g:          numOrNull(first.protein_g),
-      carbohydrates_g:    numOrNull(first.carbohydrates_g),
-      fat_g:              numOrNull(first.fat_g),
-      fibre_g:            numOrNull(first.fibre_g),
-      sugar_g:            numOrNull(first.sugar_g),
-      sodium_mg:          numOrNull(first.sodium_mg),
-      product_status:     first.product_status?.trim() || "active",
-      sort_order:         parseInt(first.sort_order ?? "0") || 0,
-      updated_at:         new Date().toISOString(),
-    };
-
-    const { data: upserted, error: upsertErr } = await supabase
-      .from("product_catalogue")
-      .upsert(productPayload, { onConflict: "product_id" })
-      .select("id")
-      .single();
-
-    if (upsertErr || !upserted) {
-      errors.push(`Product ${productId}: ${upsertErr?.message ?? "upsert failed"}`);
-      continue;
-    }
-
-    const catalogueDbId = (upserted as { id: string }).id;
-
-    // ── 3. Upsert variants ──────────────────────────────────────────────
-    const variantUpserts = productRows
-      .filter((r) => r.variant_id?.trim())
-      .map((r) => ({
-        catalogue_id:        catalogueDbId,
-        variant_id:          r.variant_id!.trim(),
-        sku:                 r.sku?.trim() ?? "",
-        variant_name:        r.variant_name?.trim() ?? "",
-        size_weight:         r.size_weight?.trim() ?? "",
-        flavour:             r.flavour?.trim() ?? "",
-        colour:              r.colour?.trim() ?? "",
-        variant_status:      r.variant_status?.trim() ?? "active",
-        suggested_price_inr: numOrNull(r.price_inr),
-        compare_at_price_inr: numOrNull(r.compare_at_price_inr),
-        stock_quantity:      parseInt(r.stock_quantity ?? "0") || 0,
-        low_stock_threshold: parseInt(r.low_stock_threshold ?? "5") || 5,
-        is_default_variant:  r.is_default_variant?.toLowerCase() === "true",
-        calories:            numOrNull(r.variant_calories),
-        protein_g:           numOrNull(r.variant_protein_g),
-        carbohydrates_g:     numOrNull(r.variant_carbohydrates_g),
-        fat_g:               numOrNull(r.variant_fat_g),
-        fibre_g:             numOrNull(r.variant_fibre_g),
-        sugar_g:             numOrNull(r.variant_sugar_g),
-        sodium_mg:           numOrNull(r.variant_sodium_mg),
-        serving_size_label:  r.variant_serving_size_label?.trim() ?? null,
-        serving_size_g:      numOrNull(r.variant_serving_size_g),
-        updated_at:          new Date().toISOString(),
-      }));
-
-    if (variantUpserts.length > 0) {
-      const { error: varErr } = await supabase
-        .from("product_catalogue_variants")
-        .upsert(variantUpserts, { onConflict: "catalogue_id,variant_id" });
-      if (varErr) errors.push(`Variants for ${productId}: ${varErr.message}`);
-    }
-
-    imported++;
+    entries.push({
+      pid,
+      rows: productRows,
+      payload: {
+        product_id:       pid,
+        product_name:     name,
+        slug,
+        brand:            first.brand?.trim() ?? "",
+        product_group_id: groups.map.get(first.user_category?.trim() ?? "") ?? null,
+        product_type_id:  types.map.get(first.category?.trim() ?? "")       ?? null,
+        goal_tags:        normalizeGoals(first.goals ?? ""),
+        aim_tags:         parseTags(first.aim ?? ""),
+        search_tags:      parseTags(first.search_tags ?? ""),
+        short_description:  first.short_description?.trim()  ?? "",
+        full_description:   first.full_description?.trim()   ?? "",
+        usage_information:  first.usage_information?.trim()  ?? "",
+        ingredients:        first.ingredients?.trim()        ?? "",
+        warnings_allergens: first.warnings_allergens?.trim() ?? "",
+        image_urls:         imageUrls,
+        serving_size_label: first.serving_size_label?.trim() ?? "",
+        serving_size_g:     numOrNull(first.serving_size_g),
+        calories:           numOrNull(first.calories),
+        protein_g:          numOrNull(first.protein_g),
+        carbohydrates_g:    numOrNull(first.carbohydrates_g),
+        fat_g:              numOrNull(first.fat_g),
+        fibre_g:            numOrNull(first.fibre_g),
+        sugar_g:            numOrNull(first.sugar_g),
+        sodium_mg:          numOrNull(first.sodium_mg),
+        product_status:     first.product_status?.trim() || "active",
+        sort_order:         parseInt(first.sort_order ?? "0") || 0,
+        updated_at:         new Date().toISOString(),
+      },
+    });
   }
 
-  return { imported, errors };
+  // ── 4. Upsert products in batches ─────────────────────────────────────
+  const idByPid = new Map<string, string>();
+  let done = 0;
+  onProgress?.(0, entries.length, "Saving products");
+
+  for (let i = 0; i < entries.length; i += PRODUCT_CHUNK) {
+    const chunk = entries.slice(i, i + PRODUCT_CHUNK);
+    const { data, error } = await supabase
+      .from("product_catalogue")
+      .upsert(chunk.map((c) => c.payload), { onConflict: "product_id" })
+      .select("id, product_id");
+
+    if (!error && data) {
+      for (const r of data as { id: string; product_id: string }[]) idByPid.set(r.product_id, r.id);
+    } else {
+      // Batch rejected — find out which product(s) are to blame.
+      for (const c of chunk) {
+        const { data: one, error: oneErr } = await supabase
+          .from("product_catalogue")
+          .upsert(c.payload, { onConflict: "product_id" })
+          .select("id, product_id")
+          .single();
+        if (oneErr || !one) result.errors.push(`Product ${c.pid}: ${oneErr?.message ?? "save failed"}`);
+        else idByPid.set(c.pid, (one as { id: string }).id);
+      }
+    }
+    done += chunk.length;
+    onProgress?.(done, entries.length, "Saving products");
+  }
+  result.imported = idByPid.size;
+
+  // ── 5. Upsert variants in batches ─────────────────────────────────────
+  interface VariantEntry {
+    pid: string;
+    vid: string;
+    payload: Record<string, unknown>;
+  }
+  const variantEntries: VariantEntry[] = [];
+  const seenVariant = new Set<string>();
+
+  for (const c of entries) {
+    const catalogueId = idByPid.get(c.pid);
+    if (!catalogueId) continue; // the product itself failed; already reported
+
+    for (const r of c.rows) {
+      const vid = r.variant_id?.trim();
+      if (!vid) continue;
+
+      // The same (product, variant_id) twice in one batch makes Postgres
+      // reject the whole statement, so keep the first and say so.
+      const key = `${catalogueId}|${vid}`;
+      if (seenVariant.has(key)) {
+        result.warnings.push(`Product ${c.pid}: variant_id "${vid}" appears more than once — only the first row was used.`);
+        continue;
+      }
+      seenVariant.add(key);
+
+      variantEntries.push({
+        pid: c.pid,
+        vid,
+        payload: {
+          catalogue_id:         catalogueId,
+          variant_id:           vid,
+          sku:                  r.sku?.trim() ?? "",
+          variant_name:         r.variant_name?.trim() ?? "",
+          size_weight:          r.size_weight?.trim() ?? "",
+          flavour:              r.flavour?.trim() ?? "",
+          colour:               r.colour?.trim() ?? "",
+          variant_status:       r.variant_status?.trim() || "active",
+          suggested_price_inr:  numOrNull(r.price_inr),
+          compare_at_price_inr: numOrNull(r.compare_at_price_inr),
+          stock_quantity:       parseInt(r.stock_quantity ?? "0") || 0,
+          low_stock_threshold:  parseInt(r.low_stock_threshold ?? "5") || 5,
+          is_default_variant:   isTrue(r.is_default_variant),
+          calories:             numOrNull(r.variant_calories),
+          protein_g:            numOrNull(r.variant_protein_g),
+          carbohydrates_g:      numOrNull(r.variant_carbohydrates_g),
+          fat_g:                numOrNull(r.variant_fat_g),
+          fibre_g:              numOrNull(r.variant_fibre_g),
+          sugar_g:              numOrNull(r.variant_sugar_g),
+          sodium_mg:            numOrNull(r.variant_sodium_mg),
+          serving_size_label:   r.variant_serving_size_label?.trim() ?? null,
+          serving_size_g:       numOrNull(r.variant_serving_size_g),
+          updated_at:           new Date().toISOString(),
+        },
+      });
+    }
+  }
+
+  done = 0;
+  onProgress?.(0, variantEntries.length, "Saving variants");
+
+  for (let i = 0; i < variantEntries.length; i += VARIANT_CHUNK) {
+    const chunk = variantEntries.slice(i, i + VARIANT_CHUNK);
+    const { error } = await supabase
+      .from("product_catalogue_variants")
+      .upsert(chunk.map((c) => c.payload), { onConflict: "catalogue_id,variant_id" });
+
+    if (!error) {
+      result.variants += chunk.length;
+    } else {
+      for (const c of chunk) {
+        const { error: oneErr } = await supabase
+          .from("product_catalogue_variants")
+          .upsert(c.payload, { onConflict: "catalogue_id,variant_id" });
+        if (oneErr) result.errors.push(`Variant ${c.vid} of ${c.pid}: ${oneErr.message}`);
+        else result.variants++;
+      }
+    }
+    done += chunk.length;
+    onProgress?.(done, variantEntries.length, "Saving variants");
+  }
+
+  return result;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

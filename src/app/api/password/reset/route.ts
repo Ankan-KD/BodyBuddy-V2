@@ -57,8 +57,10 @@ export async function POST(req: NextRequest) {
 
   // This IS a real, user-chosen password (proven via the OTP ticket above) —
   // record it the same way /set-password does, so check-password reports
-  // hasPassword correctly. See supabase/016_password_set_flag.sql for why
-  // this can't be inferred from auth.users.encrypted_password alone.
+  // hasPassword correctly. mark_password_set() writes to user_security
+  // (migration 003/017) — this cannot be inferred from
+  // auth.users.encrypted_password alone because manual signup writes a
+  // random temp password there at account-creation time.
   const { error: markErr } = await supabaseAdmin.rpc("mark_password_set", {
     p_user_id: ticketResult.userId,
   });

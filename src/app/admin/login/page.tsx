@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth";
 import { useAdminTheme } from "@/lib/adminTheme";
+import { useAuth } from "@/lib/auth";
+import { markResendSent, sendOTP, updatePasswordAfterOtp, validatePassword, verifyOTPServer } from "@/lib/passwordUtils";
 import { supabase } from "@/lib/supabase";
-import { sendOTP, verifyOTPServer, updatePasswordAfterOtp, validatePassword, markResendSent } from "@/lib/passwordUtils";
-import { Mail, Lock, Loader2, ShieldCheck, AlertCircle, Sun, Moon, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Lock, Mail, Moon, ShieldCheck, Sun } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import "../admin.css";
 
 type Screen = "login" | "fp_email" | "fp_otp" | "fp_newpass" | "fp_done";
@@ -47,7 +47,7 @@ export default function AdminLoginPage() {
   useEffect(() => {
     if (authLoading || !user || !supabase) return;
     supabase
-      .from("user_settings")
+      .from("user_security")
       .select("is_store_admin")
       .eq("user_id", user.id)
       .single()
@@ -82,7 +82,7 @@ export default function AdminLoginPage() {
     const { data: settings } = await supabase.auth.getUser();
     if (!settings?.user) { setError("Authentication failed."); setLoading(false); return; }
     const { data: userSettings } = await supabase
-      .from("user_settings")
+      .from("user_security")
       .select("is_store_admin")
       .eq("user_id", settings.user.id)
       .single();
@@ -96,7 +96,7 @@ export default function AdminLoginPage() {
   }
 
   // Forgot password — admins are regular Supabase Auth users (identified by
-  // is_store_admin in user_settings), so this reuses the same unauthenticated
+  // is_store_admin in user_security (migration 017)), so this reuses the same unauthenticated
   // forgot-password OTP flow as the main app, entirely server-side.
   async function handleForgotSend(e: React.FormEvent) {
     e.preventDefault();
@@ -264,12 +264,12 @@ export default function AdminLoginPage() {
             <form onSubmit={handleForgotVerifyOTP} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <input
                 type="text" inputMode="numeric" placeholder="6-digit code" value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                maxLength={6} required className="a-form-input"
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                maxLength={8} required className="a-form-input"
                 style={{ height: 42, textAlign: "center", letterSpacing: "0.4em", fontFamily: "monospace", fontSize: 18 }}
               />
               {error && <div className="a-alert a-alert-error"><AlertCircle style={{ width: 14, height: 14, flexShrink: 0 }} /><span>{error}</span></div>}
-              <button type="submit" disabled={loading || otpCode.length < 6} className="a-btn a-btn-primary a-btn-lg" style={{ width: "100%" }}>
+              <button type="submit" disabled={loading || otpCode.length < 8} className="a-btn a-btn-primary a-btn-lg" style={{ width: "100%" }}>
                 {loading ? <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" /> : "Verify code"}
               </button>
               <button type="button" onClick={handleResend} disabled={cooldown > 0 || loading} style={{ fontSize: 12, color: "var(--a-text-3)", background: "none", border: "none", cursor: "pointer", opacity: cooldown > 0 ? 0.5 : 1 }}>
