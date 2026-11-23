@@ -3,15 +3,19 @@ import { supabaseAdmin, getUserFromRequest } from "@/lib/supabaseAdmin";
 import { createRazorpayOrder } from "@/lib/razorpayServer";
 import { cancelOrderServer } from "@/lib/storeOrderServer";
 import type { DeliveryAddress } from "@/lib/orderTypes";
+import type { OfferRow } from "@/lib/offerTypes";
+import { offerFromRow, isOfferCurrentlyValid } from "@/lib/offerTypes";
 
 // ════════════════════════════════════════════════════════════════════════
 // BB Store — Create Checkout Order
 // 1. Authenticates the caller.
 // 2. Loads their SERVER-SIDE cart and recomputes pricing from the DB
 //    (never trusts amounts from the client).
-// 3. Creates the store_orders + store_order_items rows (this also
+// 3. Validates and applies the coupon code (if provided) server-side —
+//    the client's discountPaise value is NEVER trusted.
+// 4. Creates the store_orders + store_order_items rows (this also
 //    triggers the existing inventory-deduction DB trigger).
-// 4. Creates a matching Razorpay order.
+// 5. Creates a matching Razorpay order.
 // Cart is intentionally NOT cleared here — only after payment is
 // verified, so a failed/abandoned attempt leaves the cart intact.
 // ════════════════════════════════════════════════════════════════════════
@@ -22,6 +26,7 @@ interface RequestBody {
   customerPhone: string;
   deliveryAddress: DeliveryAddress;
   notes?: string;
+  couponCode?: string | null;   // optional promo code from the client
 }
 
 export async function POST(request: Request) {
@@ -41,7 +46,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { customerName, customerEmail, customerPhone, deliveryAddress, notes } = body ?? {};
+  const { customerName, customerEmail, customerPhone, deliveryAddress, notes, couponCode } = body ?? {};
   if (!customerName?.trim() || !customerEmail?.trim() || !customerPhone?.trim()) {
     return NextResponse.json({ error: "Name, email and phone are required." }, { status: 400 });
   }
@@ -55,9 +60,7 @@ export async function POST(request: Request) {
   }
 
   // ── 1. Load the user's cart (joined with live product/variant data)
-  //      and generate the order number in parallel — neither depends on
-  //      the other's result, so running them sequentially was just
-  //      adding two round-trips' worth of latency for nothing.
+  //      and generate the order number in parallel.
   const [{ data: cartRows, error: cartError }, { data: numData, error: numError }] = await Promise.all([
     supabaseAdmin
       .from("store_cart_items")
@@ -106,8 +109,6 @@ export async function POST(request: Request) {
 
   const rows = (cartRows ?? []) as unknown as CartJoinRow[];
 
-  // Only available, purchasable items count toward the order — mirrors the
-  // client-side filter on the checkout Review step.
   const purchasable = rows.filter((r) => {
     const v = r.store_product_variants;
     const p = v?.store_products;
@@ -118,8 +119,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Your cart is empty or its items are no longer available." }, { status: 400 });
   }
 
-  // ── 2. Early stock check (fast, friendly error only — NOT the real guard;
-  //      the atomic check lives in the DB trigger, see 012_fix_inventory_race_condition.sql)
+  // ── 2. Early stock check
   for (const row of purchasable) {
     const v = row.store_product_variants!;
     if (v.stock_quantity < row.quantity) {
@@ -130,24 +130,87 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── 3. Trusted pricing (server-computed, never from the client) ──────
-  let subtotalOriginalPaise = 0; // sum of compare-or-actual price
-  let discountPaise = 0;
+  // ── 3. Trusted pricing (server-computed, never from the client)
+  let subtotalOriginalPaise = 0;
+  let productDiscountPaise = 0;  // savings from compare_price_paise on variants
   let totalPaise = 0;
+  const cartProductIds: string[] = [];
+
   for (const row of purchasable) {
     const v = row.store_product_variants!;
     const price = Number(v.price_paise);
     const compare = v.compare_price_paise != null ? Number(v.compare_price_paise) : null;
     subtotalOriginalPaise += (compare && compare > price ? compare : price) * row.quantity;
-    if (compare && compare > price) discountPaise += (compare - price) * row.quantity;
+    if (compare && compare > price) productDiscountPaise += (compare - price) * row.quantity;
     totalPaise += price * row.quantity;
+    if (v.store_products?.id && !cartProductIds.includes(v.store_products.id)) {
+      cartProductIds.push(v.store_products.id);
+    }
   }
 
-  if (totalPaise < 100) {
+  // ── 4. Validate & apply coupon code (server-side, never trust client) ─
+  let couponDiscountPaise = 0;
+  let appliedOfferId: string | null = null;
+  let appliedOfferCode: string | null = null;
+
+  const normalizedCode = (couponCode ?? "").trim().toUpperCase();
+  if (normalizedCode) {
+    const { data: offerRow, error: offerError } = await supabaseAdmin
+      .from("store_offers")
+      .select("*")
+      .eq("code", normalizedCode)
+      .single();
+
+    if (offerError || !offerRow) {
+      return NextResponse.json({ error: `Coupon "${normalizedCode}" is not valid.` }, { status: 422 });
+    }
+
+    const offer = offerFromRow(offerRow as OfferRow);
+
+    if (!offer.isActive) {
+      return NextResponse.json({ error: `Coupon "${normalizedCode}" is not active.` }, { status: 422 });
+    }
+    if (!isOfferCurrentlyValid(offer)) {
+      return NextResponse.json({ error: `Coupon "${normalizedCode}" has expired or hasn't started yet.` }, { status: 422 });
+    }
+    if (offer.maxUses !== null && offer.usedCount >= offer.maxUses) {
+      return NextResponse.json({ error: `Coupon "${normalizedCode}" has reached its usage limit.` }, { status: 422 });
+    }
+    if (offer.minOrderPaise !== null && totalPaise < offer.minOrderPaise) {
+      const minRs = Math.ceil(offer.minOrderPaise / 100);
+      return NextResponse.json({
+        error: `Coupon "${normalizedCode}" requires a minimum order of ₹${minRs}.`,
+      }, { status: 422 });
+    }
+    // Product scope: coupon must apply to at least one item if scoped
+    if (offer.productIds.length > 0) {
+      const hasMatch = cartProductIds.some((pid) => offer.productIds.includes(pid));
+      if (!hasMatch) {
+        return NextResponse.json({
+          error: `Coupon "${normalizedCode}" doesn't apply to any items in your cart.`,
+        }, { status: 422 });
+      }
+    }
+
+    // Compute coupon discount
+    if (offer.discountType === "percentage") {
+      couponDiscountPaise = Math.round(totalPaise * (offer.discountValue / 100));
+    } else {
+      couponDiscountPaise = Math.min(offer.discountValue, totalPaise);
+    }
+
+    appliedOfferId = offer.id;
+    appliedOfferCode = offer.code;
+  }
+
+  const finalTotal = Math.max(100, totalPaise - couponDiscountPaise); // min ₹1
+  const totalDiscountPaise = productDiscountPaise + couponDiscountPaise;
+
+  if (finalTotal < 100) {
     return NextResponse.json({ error: "Order total must be at least ₹1." }, { status: 400 });
   }
 
-  // ── 5. Insert the order row (payment_status starts pending) ─────────
+  // ── 5. Insert the order row
   const { data: orderData, error: orderError } = await supabaseAdmin
     .from("store_orders")
     .insert({
@@ -160,9 +223,12 @@ export async function POST(request: Request) {
       payment_method: "razorpay",
       payment_status: "pending",
       subtotal_paise: subtotalOriginalPaise,
-      discount_paise: discountPaise,
+      discount_paise: totalDiscountPaise,
+      coupon_code: appliedOfferCode,
+      offer_id: appliedOfferId,
+      coupon_discount_paise: couponDiscountPaise,
       delivery_paise: 0,
-      total_paise: totalPaise,
+      total_paise: finalTotal,
       status: "placed",
       notes: notes ?? "",
     })
@@ -174,7 +240,7 @@ export async function POST(request: Request) {
   }
   const orderId = orderData.id as string;
 
-  // ── 6. Insert order items (snapshot; also deducts inventory via trigger) ─
+  // ── 6. Insert order items (also deducts inventory via trigger)
   const itemRows = purchasable.map((row) => {
     const v = row.store_product_variants!;
     const p = v.store_products!;
@@ -195,46 +261,40 @@ export async function POST(request: Request) {
     };
   });
 
-  // Insert in a fixed (variant_id) order. The DB trigger row-locks each
-  // variant as it deducts stock; if two multi-item orders locked the same
-  // variants in different orders they could deadlock. Sorting makes every
-  // order lock them in the same sequence.
   itemRows.sort((a, b) => String(a.variant_id).localeCompare(String(b.variant_id)));
 
   const { error: itemsError } = await supabaseAdmin.from("store_order_items").insert(itemRows);
   if (itemsError) {
-    // Nothing was deducted (single insert statement — atomic), so a
-    // plain delete is safe here; no inventory to restore.
     await supabaseAdmin.from("store_orders").delete().eq("id", orderId);
 
-    // The DB trigger raises OUT_OF_STOCK:<variant_id> when another buyer
-    // took the last units between our early check (step 2) and this insert.
-    // Because the whole insert is one statement, nothing was deducted.
     const oos = /OUT_OF_STOCK:([0-9a-fA-F-]{36})/.exec(itemsError.message);
     if (oos) {
       const hit = purchasable.find((r) => r.store_product_variants?.id === oos[1]);
       const name = hit?.store_product_variants?.store_products?.name ?? "An item in your cart";
       return NextResponse.json(
-        {
-          error: `Sorry — someone just bought the last unit(s) of "${name}". Please update your cart.`,
-          code: "OUT_OF_STOCK",
-        },
+        { error: `Sorry — someone just bought the last unit(s) of "${name}". Please update your cart.`, code: "OUT_OF_STOCK" },
         { status: 409 }
       );
     }
     return NextResponse.json({ error: `Failed to save order items: ${itemsError.message}` }, { status: 500 });
   }
 
-  // ── 7. Create the Razorpay order ─────────────────────────────────────
+  // ── 7. Increment offer usage count (best-effort, non-blocking)
+  if (appliedOfferId) {
+    supabaseAdmin
+      .rpc("increment_offer_used_count", { p_offer_id: appliedOfferId })
+      .then(() => {})
+      .catch(() => {});
+  }
+
+  // ── 8. Create the Razorpay order
   const { order: rpOrder, error: rpError } = await createRazorpayOrder({
-    amountPaise: totalPaise,
+    amountPaise: finalTotal,
     receipt: orderNumber,
     notes: { store_order_id: orderId, order_number: orderNumber },
   });
 
   if (!rpOrder) {
-    // Inventory WAS deducted by the item-insert trigger — cancel (not
-    // delete) so the existing restore-on-cancel trigger returns stock.
     await cancelOrderServer(orderId, `Razorpay order creation failed: ${rpError}`);
     return NextResponse.json({ error: rpError ?? "Could not start payment. Please try again." }, { status: 502 });
   }
@@ -244,8 +304,12 @@ export async function POST(request: Request) {
   return NextResponse.json({
     orderId,
     orderNumber,
-    amountPaise: totalPaise,
+    amountPaise: finalTotal,
     razorpayOrderId: rpOrder.id,
     razorpayKeyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+    couponApplied: appliedOfferCode ? {
+      code: appliedOfferCode,
+      discountPaise: couponDiscountPaise,
+    } : null,
   });
 }

@@ -94,7 +94,8 @@ export function SalesOverviewDonut({ segments, centerLabel, centerValue }: Props
                 }}
               />
               <span style={{ fontSize: 12.5, color: "var(--a-text-2)", flex: 1 }}>{seg.label}</span>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--a-text)" }}>{pct}%</span>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--a-text)" }}>{seg.value}</span>
+              <span style={{ fontSize: 11, color: "var(--a-text-4)", minWidth: 32, textAlign: "right" }}>{pct}%</span>
             </div>
           );
         })}

@@ -14,6 +14,7 @@ import {
 import { useCart, formatPriceINR } from "@/lib/cartContext";
 import { stockLabel, isVariantPurchasable } from "@/lib/storeTypes";
 import { cn } from "@/lib/utils";
+import { ActiveOffersBanner } from "@/components/store/ActiveOffersBanner";
 
 // ── Cart Line Item ─────────────────────────────────────────────────────────
 
@@ -204,6 +205,9 @@ function OrderSummary() {
           </p>
         </div>
       )}
+
+      {/* Active offers — show available promo codes so customers know to apply them */}
+      <ActiveOffersBanner className="mt-3" />
 
       <Link
         href="/store/checkout"

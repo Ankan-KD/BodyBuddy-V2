@@ -2,40 +2,43 @@
 
 // ════════════════════════════════════════════════════════════════════════
 // BB Store — Checkout Page (Razorpay)
-// Collects customer details + delivery address (auto-filled from the
-// user's saved Store delivery profile when available), then the single
-// "Pay & Place Order" action creates a server-verified order and opens
-// Razorpay Checkout. No payment-method picker — Razorpay itself presents
-// whichever methods are enabled on the account.
+// Step 0 — Customer details
+// Step 1 — Delivery address
+// Step 2 — Review, coupon + Pay
+//
+// Key behaviours:
+//  • Coupon code entry on the Review step — validated live against the
+//    server (validate-coupon), then re-verified in create-order.
+//  • 5-minute payment countdown starts when Razorpay opens. If it
+//    hits zero the order is cancelled and the user must re-add items.
+//  • Payment failure / dismiss → order cancelled, stock restored,
+//    clear error sent the user back to the cart to retry.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  MapPin,
-  User,
-  Phone,
-  Mail,
-  Package,
-  ChevronRight,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-  ShieldCheck,
-  BadgeCheck,
-  Plus,
-  Tag,
+  MapPin, User, Phone, Mail, Package, ChevronRight,
+  AlertCircle, CheckCircle2, Loader2, ShieldCheck, BadgeCheck,
+  Plus, Tag, X, Timer, RefreshCw,
 } from "lucide-react";
 import { useCart, formatPriceINR } from "@/lib/cartContext";
 import { isVariantPurchasable } from "@/lib/storeTypes";
 import { useAuth } from "@/lib/auth";
-import { createCheckoutOrder, verifyCheckoutPayment, markCheckoutOrderFailed } from "@/lib/orderApi";
+import {
+  createCheckoutOrder,
+  verifyCheckoutPayment,
+  markCheckoutOrderFailed,
+  validateCoupon,
+  type CouponValidationResult,
+} from "@/lib/orderApi";
 import { listMyDeliveryProfiles, saveMyDeliveryProfile } from "@/lib/deliveryProfileApi";
 import { DeliveryProfile } from "@/lib/deliveryProfileTypes";
+import { ActiveOffersBanner } from "@/components/store/ActiveOffersBanner";
 import { cn } from "@/lib/utils";
 
-// ── Razorpay Checkout.js typings (minimal, matches the tested module) ──────
+// ── Razorpay Checkout.js typings ──────────────────────────────────────────
 
 declare global {
   interface Window {
@@ -71,10 +74,7 @@ interface RazorpayFailure {
 
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
-    if (window.Razorpay) {
-      resolve(true);
-      return;
-    }
+    if (window.Razorpay) { resolve(true); return; }
     const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.onload = () => resolve(true);
@@ -85,7 +85,7 @@ function loadRazorpayScript(): Promise<boolean> {
 
 // ── Step indicator ────────────────────────────────────────────────────────
 
-const STEPS = ["Details", "Address", "Review"];
+const STEPS = ["Details", "Address", "Review & Pay"];
 
 function Stepper({ step }: { step: number }) {
   return (
@@ -107,7 +107,7 @@ function Stepper({ step }: { step: number }) {
             </div>
             <span
               className={cn(
-                "text-[10px] font-medium",
+                "text-[10px] font-medium whitespace-nowrap",
                 i === step ? "text-amber-500" : "text-[var(--text-muted)]"
               )}
             >
@@ -128,26 +128,17 @@ function Stepper({ step }: { step: number }) {
   );
 }
 
-// ── Form field ────────────────────────────────────────────────────────────
+// ── Form helpers ──────────────────────────────────────────────────────────
 
 function Field({
-  label,
-  icon: Icon,
-  error,
-  required,
-  children,
+  label, icon: Icon, error, required, children,
 }: {
-  label: string;
-  icon: React.ElementType;
-  error?: string;
-  required?: boolean;
-  children: React.ReactNode;
+  label: string; icon: React.ElementType; error?: string; required?: boolean; children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
       <label className="text-xs font-semibold text-[var(--text-muted)] flex items-center gap-1.5">
-        <Icon className="w-3.5 h-3.5" />
-        {label}
+        <Icon className="w-3.5 h-3.5" />{label}
         {required && <span className="text-amber-500">*</span>}
       </label>
       {children}
@@ -156,10 +147,7 @@ function Field({
   );
 }
 
-function Input({
-  className,
-  ...props
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       className={cn(
@@ -173,17 +161,136 @@ function Input({
   );
 }
 
+// ── Coupon input widget ───────────────────────────────────────────────────
+
+interface CouponBoxProps {
+  cartTotal: number;
+  productIds: string[];
+  applied: CouponValidationResult | null;
+  onApply: (result: CouponValidationResult, code: string) => void;
+  onRemove: () => void;
+}
+
+function CouponBox({ cartTotal, productIds, applied, onApply, onRemove }: CouponBoxProps) {
+  const [input, setInput] = useState(applied?.code ?? "");
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleApply() {
+    const code = input.trim().toUpperCase();
+    if (!code) { setError("Enter a coupon code."); return; }
+    setChecking(true);
+    setError(null);
+    const result = await validateCoupon({ code, orderTotalPaise: cartTotal, productIds });
+    setChecking(false);
+    if (result.valid) {
+      onApply(result, code);
+    } else {
+      setError(result.error ?? "Invalid coupon.");
+    }
+  }
+
+  if (applied?.valid) {
+    return (
+      <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/8 border border-emerald-500/25">
+        <Tag className="w-4 h-4 text-emerald-500 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+            Coupon applied: <span className="font-mono">{applied.code}</span>
+          </p>
+          <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+            You save {formatPriceINR(applied.discountPaise ?? 0)}
+          </p>
+        </div>
+        <button
+          onClick={() => { onRemove(); setInput(""); setError(null); }}
+          className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-red-500/10 text-[var(--text-muted)] hover:text-red-500 transition-colors"
+          title="Remove coupon"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-2">
+        <input
+          className={cn(
+            "flex-1 px-3.5 py-2.5 rounded-xl text-sm bg-[var(--bg-card)] border font-mono uppercase tracking-wide",
+            "focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-colors",
+            "placeholder:text-[var(--text-muted)] placeholder:normal-case placeholder:tracking-normal",
+            error ? "border-red-500/60" : "border-[var(--border)]"
+          )}
+          placeholder="Enter coupon code"
+          value={input}
+          onChange={(e) => { setInput(e.target.value.toUpperCase()); setError(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") handleApply(); }}
+          disabled={checking}
+          maxLength={30}
+        />
+        <button
+          onClick={handleApply}
+          disabled={checking || !input.trim()}
+          className="shrink-0 px-4 rounded-xl bg-amber-500 text-white text-sm font-semibold disabled:opacity-50 active:scale-95 transition-transform"
+        >
+          {checking ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+// ── Payment countdown timer ───────────────────────────────────────────────
+
+function PaymentTimer({ seconds, onExpired }: { seconds: number; onExpired: () => void }) {
+  const [remaining, setRemaining] = useState(seconds);
+  const fired = useRef(false);
+
+  useEffect(() => {
+    if (remaining <= 0) {
+      if (!fired.current) { fired.current = true; onExpired(); }
+      return;
+    }
+    const t = setTimeout(() => setRemaining((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [remaining, onExpired]);
+
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const critical = remaining <= 60;
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 p-3 rounded-xl border text-xs font-semibold",
+        critical
+          ? "bg-red-500/10 border-red-500/25 text-red-600 dark:text-red-400"
+          : "bg-amber-500/8 border-amber-500/20 text-amber-700 dark:text-amber-300"
+      )}
+    >
+      <Timer className={cn("w-4 h-4 shrink-0", critical && "animate-pulse")} />
+      <span>
+        Complete payment within{" "}
+        <span className="font-mono font-bold">
+          {mins}:{secs.toString().padStart(2, "0")}
+        </span>
+        {critical ? " — time is almost up!" : " to confirm your order."}
+      </span>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────
 
 interface FormErrors {
-  name?: string;
-  email?: string;
-  phone?: string;
-  line1?: string;
-  city?: string;
-  state?: string;
-  pincode?: string;
+  name?: string; email?: string; phone?: string;
+  line1?: string; city?: string; state?: string; pincode?: string;
 }
+
+const PAYMENT_TIMEOUT_SECONDS = 5 * 60; // 5 minutes
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -192,13 +299,16 @@ export default function CheckoutPage() {
   const [step, setStep] = useState(0);
   const [placing, setPlacing] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [timerExpired, setTimerExpired] = useState(false);
+  const pendingOrderId = useRef<string | null>(null);
 
-  // ── Customer details ───────────────────────────────────────────────
+  // ── Customer details ──────────────────────────────────────────────
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
 
-  // ── Delivery address ───────────────────────────────────────────────
+  // ── Delivery address ──────────────────────────────────────────────
   const [line1, setLine1] = useState("");
   const [line2, setLine2] = useState("");
   const [city, setCity] = useState("");
@@ -214,7 +324,11 @@ export default function CheckoutPage() {
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [addressLabel, setAddressLabel] = useState("Home");
 
-  // ── Errors ─────────────────────────────────────────────────────────
+  // ── Coupon ────────────────────────────────────────────────────────
+  const [coupon, setCoupon] = useState<CouponValidationResult | null>(null);
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+
+  // ── Errors ────────────────────────────────────────────────────────
   const [errors, setErrors] = useState<FormErrors>({});
 
   function applyProfile(profile: DeliveryProfile) {
@@ -233,15 +347,9 @@ export default function CheckoutPage() {
   function startNewAddress() {
     setProfileId(null);
     setAddressLabel("Home");
-    setLine1("");
-    setLine2("");
-    setCity("");
-    setState("");
-    setPincode("");
-    setInstructions("");
+    setLine1(""); setLine2(""); setCity(""); setState(""); setPincode(""); setInstructions("");
   }
 
-  // Pre-fill from user profile + saved Store delivery addresses
   useEffect(() => {
     if (!user) return;
     const meta = user.user_metadata;
@@ -251,36 +359,32 @@ export default function CheckoutPage() {
     listMyDeliveryProfiles(user.id).then((profiles) => {
       setSavedProfiles(profiles);
       const defaultProfile = profiles.find((p) => p.isDefault) ?? profiles[0] ?? null;
-      if (defaultProfile) {
-        setHasSavedProfile(true);
-        applyProfile(defaultProfile);
-      }
+      if (defaultProfile) { setHasSavedProfile(true); applyProfile(defaultProfile); }
       setProfileLoaded(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Only checkout available, purchasable items
   const availableItems = items.filter(
-    (i) =>
-      i.product.published &&
-      i.product.availability === "active" &&
-      isVariantPurchasable(i.variant)
+    (i) => i.product.published && i.product.availability === "active" && isVariantPurchasable(i.variant)
   );
   const hasItems = availableItems.length > 0;
   const unavailableCount = items.length - availableItems.length;
+  const cartProductIds = [...new Set(availableItems.map((i) => i.productId))];
 
-  // ── Validation ─────────────────────────────────────────────────────
+  // Totals with coupon
+  const couponDiscount = coupon?.valid ? (coupon.discountPaise ?? 0) : 0;
+  const finalTotal = Math.max(0, totals.totalPaise - couponDiscount);
+
+  // ── Validation ────────────────────────────────────────────────────
 
   function validateStep0(): boolean {
     const e: FormErrors = {};
     if (!name.trim()) e.name = "Full name is required";
     if (!email.trim()) e.email = "Email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-      e.email = "Enter a valid email address";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Enter a valid email address";
     if (!phone.trim()) e.phone = "Phone number is required";
-    else if (!/^[0-9]{10}$/.test(phone.replace(/\s/g, "")))
-      e.phone = "Enter a valid 10-digit phone number";
+    else if (!/^[0-9]{10}$/.test(phone.replace(/\s/g, ""))) e.phone = "Enter a valid 10-digit phone number";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -291,8 +395,7 @@ export default function CheckoutPage() {
     if (!city.trim()) e.city = "City is required";
     if (!state.trim()) e.state = "State is required";
     if (!pincode.trim()) e.pincode = "Pincode is required";
-    else if (!/^[0-9]{6}$/.test(pincode.trim()))
-      e.pincode = "Enter a valid 6-digit pincode";
+    else if (!/^[0-9]{6}$/.test(pincode.trim())) e.pincode = "Enter a valid 6-digit pincode";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -302,7 +405,24 @@ export default function CheckoutPage() {
     else if (step === 1 && validateStep1()) setStep(2);
   }
 
-  // ── Pay & Place Order ──────────────────────────────────────────────
+  // ── Handle timer expiry (5 min window) ───────────────────────────
+
+  const handleTimerExpired = useCallback(async () => {
+    setPaymentOpen(false);
+    setTimerExpired(true);
+    setPlacing(false);
+    setOrderError(
+      "Your 5-minute payment window has expired and the order has been cancelled. " +
+      "Your cart is intact — please go back to the cart and place your order again."
+    );
+    if (pendingOrderId.current) {
+      await markCheckoutOrderFailed(pendingOrderId.current, "Payment window expired (5 min).");
+      pendingOrderId.current = null;
+    }
+    await refreshCart();
+  }, [refreshCart]);
+
+  // ── Pay & Place Order ─────────────────────────────────────────────
 
   const cleanupFailedOrder = useCallback(async (orderId: string, reason: string) => {
     await markCheckoutOrderFailed(orderId, reason);
@@ -313,51 +433,44 @@ export default function CheckoutPage() {
     if (!user || !hasItems || placing) return;
     setPlacing(true);
     setOrderError(null);
+    setTimerExpired(false);
 
     let createdOrderId: string | null = null;
 
     try {
-      // 1. Create the order + Razorpay order (server-side trusted pricing)
       const created = await createCheckoutOrder({
         customerName: name.trim(),
         customerEmail: email.trim(),
         customerPhone: phone.trim(),
         deliveryAddress: {
-          line1: line1.trim(),
-          line2: line2.trim(),
-          city: city.trim(),
-          state: state.trim(),
-          pincode: pincode.trim(),
-          country: "India",
+          line1: line1.trim(), line2: line2.trim(), city: city.trim(),
+          state: state.trim(), pincode: pincode.trim(), country: "India",
         },
+        couponCode: couponCode ?? null,
       });
       createdOrderId = created.orderId;
+      pendingOrderId.current = createdOrderId;
 
-      // Save/update the delivery profile in parallel (best-effort; never
-      // blocks or fails checkout).
+      // If the server rejects the coupon (e.g. race condition exhausted it),
+      // it throws — that surfaces as the catch below.
+
+      // Save/update delivery profile (best-effort)
       if (saveProfile) {
         saveMyDeliveryProfile(user.id, profileId, {
           label: addressLabel.trim() || "Home",
-          recipientName: name.trim(),
-          phone: phone.trim(),
-          line1: line1.trim(),
-          line2: line2.trim(),
-          city: city.trim(),
-          state: state.trim(),
-          pincode: pincode.trim(),
-          country: "India",
+          recipientName: name.trim(), phone: phone.trim(),
+          line1: line1.trim(), line2: line2.trim(), city: city.trim(),
+          state: state.trim(), pincode: pincode.trim(), country: "India",
           deliveryInstructions: instructions.trim(),
         }).catch(() => {});
       }
 
-      // 2. Load Razorpay Checkout
       const ready = await loadRazorpayScript();
       if (!ready) throw new Error("Could not load the payment window. Check your internet connection.");
-
       if (!created.razorpayKeyId) throw new Error("Payment is not configured. Please contact support.");
 
-      // 3. Open Razorpay Checkout — it presents whichever methods (UPI,
-      //    cards, netbanking, wallets, ...) are enabled on the account.
+      setPaymentOpen(true); // ← start the 5-min countdown
+
       const razorpay = new window.Razorpay({
         key: created.razorpayKeyId,
         amount: created.amountPaise,
@@ -369,12 +482,20 @@ export default function CheckoutPage() {
         theme: { color: "#f5601f" },
         modal: {
           ondismiss: async () => {
+            setPaymentOpen(false);
             setPlacing(false);
-            setOrderError("Checkout was closed before payment completed. Your order was not placed — please try again.");
-            if (createdOrderId) await cleanupFailedOrder(createdOrderId, "Checkout dismissed by customer.");
+            setOrderError(
+              "Payment was not completed. Your order has been cancelled and no charge was made. " +
+              "Please go back to your cart to place a fresh order."
+            );
+            if (createdOrderId) {
+              await cleanupFailedOrder(createdOrderId, "Checkout dismissed by customer.");
+              pendingOrderId.current = null;
+            }
           },
         },
         handler: async (payment) => {
+          setPaymentOpen(false);
           const result = await verifyCheckoutPayment({
             orderId: created.orderId,
             razorpay_order_id: payment.razorpay_order_id,
@@ -382,6 +503,7 @@ export default function CheckoutPage() {
             razorpay_signature: payment.razorpay_signature,
           });
           if (result.verified) {
+            pendingOrderId.current = null;
             router.replace(`/store/orders/${created.orderId}?placed=1`);
           } else {
             setPlacing(false);
@@ -391,9 +513,16 @@ export default function CheckoutPage() {
       });
 
       razorpay.on("payment.failed", async (failure) => {
+        setPaymentOpen(false);
         setPlacing(false);
-        setOrderError(failure.error?.description || "Payment failed. Please try again.");
-        if (createdOrderId) await cleanupFailedOrder(createdOrderId, failure.error?.description ?? "payment.failed");
+        setOrderError(
+          (failure.error?.description || "Payment failed.") +
+          " No charge was made. Please go back to your cart and try again."
+        );
+        if (createdOrderId) {
+          await cleanupFailedOrder(createdOrderId, failure.error?.description ?? "payment.failed");
+          pendingOrderId.current = null;
+        }
       });
 
       razorpay.open();
@@ -401,20 +530,22 @@ export default function CheckoutPage() {
       const msg = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       setOrderError(msg);
       setPlacing(false);
-      if (createdOrderId) await cleanupFailedOrder(createdOrderId, msg);
+      setPaymentOpen(false);
+      if (createdOrderId) {
+        await cleanupFailedOrder(createdOrderId, msg);
+        pendingOrderId.current = null;
+      }
     }
   }
 
-  // ── Loading / empty guard ──────────────────────────────────────────
+  // ── Loading / empty guard ─────────────────────────────────────────
 
   if (loading || !profileLoaded) {
     return (
       <div className="px-4 pt-4">
         <h1 className="font-display text-xl font-semibold mb-4">Checkout</h1>
         <div className="space-y-3 animate-pulse">
-          {[1, 2, 3].map((n) => (
-            <div key={n} className="h-16 rounded-2xl bg-[var(--border)]" />
-          ))}
+          {[1, 2, 3].map((n) => <div key={n} className="h-16 rounded-2xl bg-[var(--border)]" />)}
         </div>
       </div>
     );
@@ -428,9 +559,7 @@ export default function CheckoutPage() {
           <div className="w-20 h-20 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
             <Package className="w-9 h-9 text-amber-500/60" />
           </div>
-          <h2 className="font-display text-lg font-semibold mb-1">
-            Your cart is empty
-          </h2>
+          <h2 className="font-display text-lg font-semibold mb-1">Your cart is empty</h2>
           <p className="text-sm text-[var(--text-muted)] mb-6 max-w-[220px]">
             Add some products to your cart before checking out.
           </p>
@@ -445,7 +574,7 @@ export default function CheckoutPage() {
     );
   }
 
-  // ── Render ─────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────
 
   return (
     <div className="px-4 pt-4 pb-8">
@@ -465,35 +594,24 @@ export default function CheckoutPage() {
               <Input
                 placeholder="Rahul Sharma"
                 value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (errors.name) setErrors((p) => ({ ...p, name: undefined }));
-                }}
+                onChange={(e) => { setName(e.target.value); if (errors.name) setErrors((p) => ({ ...p, name: undefined })); }}
               />
             </Field>
-
             <Field label="Email Address" icon={Mail} required error={errors.email}>
               <Input
                 type="email"
                 placeholder="rahul@example.com"
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errors.email) setErrors((p) => ({ ...p, email: undefined }));
-                }}
+                onChange={(e) => { setEmail(e.target.value); if (errors.email) setErrors((p) => ({ ...p, email: undefined })); }}
               />
             </Field>
-
             <Field label="Phone Number" icon={Phone} required error={errors.phone}>
               <Input
                 type="tel"
                 placeholder="9876543210"
                 maxLength={10}
                 value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value.replace(/\D/g, ""));
-                  if (errors.phone) setErrors((p) => ({ ...p, phone: undefined }));
-                }}
+                onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "")); if (errors.phone) setErrors((p) => ({ ...p, phone: undefined })); }}
               />
             </Field>
           </div>
@@ -521,9 +639,6 @@ export default function CheckoutPage() {
             )}
           </div>
 
-          {/* Saved address picker — only shown when the user has more than
-              one saved address; a single saved address is already applied
-              automatically above. */}
           {savedProfiles.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-semibold text-[var(--text-muted)]">
@@ -537,20 +652,14 @@ export default function CheckoutPage() {
                     onClick={() => applyProfile(p)}
                     className={cn(
                       "shrink-0 text-left rounded-xl border px-3 py-2 min-w-[140px] transition-colors",
-                      profileId === p.id
-                        ? "border-amber-500 bg-amber-500/10"
-                        : "border-[var(--border)] glass-panel"
+                      profileId === p.id ? "border-amber-500 bg-amber-500/10" : "border-[var(--border)] glass-panel"
                     )}
                   >
                     <span className="flex items-center gap-1 text-[11px] font-bold text-amber-600 dark:text-amber-300">
                       <Tag className="w-3 h-3" /> {p.label}
                     </span>
-                    <span className="block text-[11px] text-[var(--text-muted)] mt-0.5 line-clamp-1">
-                      {p.recipientName}
-                    </span>
-                    <span className="block text-[11px] text-[var(--text-muted)] line-clamp-1">
-                      {p.line1}, {p.city}
-                    </span>
+                    <span className="block text-[11px] text-[var(--text-muted)] mt-0.5 line-clamp-1">{p.recipientName}</span>
+                    <span className="block text-[11px] text-[var(--text-muted)] line-clamp-1">{p.line1}, {p.city}</span>
                   </button>
                 ))}
                 <button
@@ -558,9 +667,7 @@ export default function CheckoutPage() {
                   onClick={startNewAddress}
                   className={cn(
                     "shrink-0 flex flex-col items-center justify-center gap-1 text-[11px] font-semibold rounded-xl border px-4 py-2 min-w-[100px] transition-colors",
-                    profileId === null
-                      ? "border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-300"
-                      : "border-dashed border-[var(--border)] text-[var(--text-muted)]"
+                    profileId === null ? "border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-300" : "border-dashed border-[var(--border)] text-[var(--text-muted)]"
                   )}
                 >
                   <Plus className="w-4 h-4" /> New address
@@ -571,83 +678,47 @@ export default function CheckoutPage() {
 
           <div className="glass-panel border border-[var(--border)] rounded-2xl p-4 space-y-4">
             <Field label="Address Label" icon={Tag}>
-              <Input
-                placeholder="Home, Work, ..."
-                value={addressLabel}
-                onChange={(e) => setAddressLabel(e.target.value)}
-              />
+              <Input placeholder="Home, Work, ..." value={addressLabel} onChange={(e) => setAddressLabel(e.target.value)} />
             </Field>
-
             <Field label="Address Line 1" icon={MapPin} required error={errors.line1}>
               <Input
                 placeholder="Flat / House no., Building, Street"
                 value={line1}
-                onChange={(e) => {
-                  setLine1(e.target.value);
-                  if (errors.line1) setErrors((p) => ({ ...p, line1: undefined }));
-                }}
+                onChange={(e) => { setLine1(e.target.value); if (errors.line1) setErrors((p) => ({ ...p, line1: undefined })); }}
               />
             </Field>
-
             <Field label="Address Line 2 (Optional)" icon={MapPin}>
-              <Input
-                placeholder="Area, Colony, Landmark"
-                value={line2}
-                onChange={(e) => setLine2(e.target.value)}
-              />
+              <Input placeholder="Area, Colony, Landmark" value={line2} onChange={(e) => setLine2(e.target.value)} />
             </Field>
-
             <div className="grid grid-cols-2 gap-3">
               <Field label="City" icon={MapPin} required error={errors.city}>
                 <Input
                   placeholder="Mumbai"
                   value={city}
-                  onChange={(e) => {
-                    setCity(e.target.value);
-                    if (errors.city) setErrors((p) => ({ ...p, city: undefined }));
-                  }}
+                  onChange={(e) => { setCity(e.target.value); if (errors.city) setErrors((p) => ({ ...p, city: undefined })); }}
                 />
               </Field>
-
               <Field label="State" icon={MapPin} required error={errors.state}>
                 <Input
                   placeholder="Maharashtra"
                   value={state}
-                  onChange={(e) => {
-                    setState(e.target.value);
-                    if (errors.state) setErrors((p) => ({ ...p, state: undefined }));
-                  }}
+                  onChange={(e) => { setState(e.target.value); if (errors.state) setErrors((p) => ({ ...p, state: undefined })); }}
                 />
               </Field>
             </div>
-
             <Field label="Pincode" icon={MapPin} required error={errors.pincode}>
               <Input
                 placeholder="400001"
                 maxLength={6}
                 value={pincode}
-                onChange={(e) => {
-                  setPincode(e.target.value.replace(/\D/g, ""));
-                  if (errors.pincode) setErrors((p) => ({ ...p, pincode: undefined }));
-                }}
+                onChange={(e) => { setPincode(e.target.value.replace(/\D/g, "")); if (errors.pincode) setErrors((p) => ({ ...p, pincode: undefined })); }}
               />
             </Field>
-
             <Field label="Delivery Instructions (Optional)" icon={MapPin}>
-              <Input
-                placeholder="Leave at the door, call on arrival, etc."
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-              />
+              <Input placeholder="Leave at the door, call on arrival, etc." value={instructions} onChange={(e) => setInstructions(e.target.value)} />
             </Field>
-
             <label className="flex items-center gap-2 text-xs text-[var(--text-muted)] pt-1">
-              <input
-                type="checkbox"
-                checked={saveProfile}
-                onChange={(e) => setSaveProfile(e.target.checked)}
-                className="rounded border-[var(--border)]"
-              />
+              <input type="checkbox" checked={saveProfile} onChange={(e) => setSaveProfile(e.target.checked)} className="rounded border-[var(--border)]" />
               Save this address for next time
             </label>
           </div>
@@ -672,18 +743,13 @@ export default function CheckoutPage() {
       {/* ── Step 2: Review & Pay ── */}
       {step === 2 && (
         <section className="space-y-4">
-          {/* Customer summary */}
+          {/* Contact summary */}
           <div className="glass-panel border border-[var(--border)] rounded-2xl p-4">
             <div className="flex items-start justify-between mb-3">
               <h3 className="font-semibold text-sm flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-amber-500" /> Contact
               </h3>
-              <button
-                onClick={() => setStep(0)}
-                className="text-[11px] text-amber-500 font-medium"
-              >
-                Edit
-              </button>
+              <button onClick={() => setStep(0)} className="text-[11px] text-amber-500 font-medium">Edit</button>
             </div>
             <p className="text-sm">{name}</p>
             <p className="text-xs text-[var(--text-muted)]">{email}</p>
@@ -696,24 +762,18 @@ export default function CheckoutPage() {
               <h3 className="font-semibold text-sm flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-amber-500" /> Delivery Address
               </h3>
-              <button
-                onClick={() => setStep(1)}
-                className="text-[11px] text-amber-500 font-medium"
-              >
-                Edit
-              </button>
+              <button onClick={() => setStep(1)} className="text-[11px] text-amber-500 font-medium">Edit</button>
             </div>
             <p className="text-sm leading-relaxed">
-              {line1}
-              {line2 ? `, ${line2}` : ""}
-              <br />
-              {city}, {state} – {pincode}
-              <br />
-              India
+              {line1}{line2 ? `, ${line2}` : ""}<br />
+              {city}, {state} – {pincode}<br />India
             </p>
           </div>
 
-          {/* Order items summary */}
+          {/* Available offers — collapsed by default */}
+          <ActiveOffersBanner productIds={cartProductIds} />
+
+          {/* Order items */}
           <div className="glass-panel border border-[var(--border)] rounded-2xl p-4">
             <h3 className="font-semibold text-sm flex items-center gap-1.5 mb-3">
               <Package className="w-3.5 h-3.5 text-amber-500" /> Order Summary
@@ -722,39 +782,24 @@ export default function CheckoutPage() {
               </span>
             </h3>
 
-            <div className="space-y-3 mb-3">
+            <div className="space-y-3 mb-4">
               {availableItems.map((item) => {
-                const primaryImage =
-                  item.variant.images?.[0] ?? item.product.images?.[0] ?? null;
-                const variantLabel = [item.variant.sizeLabel, item.variant.flavour]
-                  .filter(Boolean)
-                  .join(" · ");
+                const primaryImage = item.variant.images?.[0] ?? item.product.images?.[0] ?? null;
+                const variantLabel = [item.variant.sizeLabel, item.variant.flavour].filter(Boolean).join(" · ");
                 return (
                   <div key={item.id} className="flex items-center gap-3">
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/10 to-nova-500/10 flex items-center justify-center overflow-hidden shrink-0">
                       {primaryImage ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={primaryImage}
-                          alt={item.product.name}
-                          className="w-full h-full object-cover"
-                        />
+                        <img src={primaryImage} alt={item.product.name} className="w-full h-full object-cover" />
                       ) : (
                         <Package className="w-4 h-4 text-amber-500/30" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium leading-tight line-clamp-1">
-                        {item.product.name}
-                      </p>
-                      {variantLabel && (
-                        <p className="text-[11px] text-[var(--text-muted)]">
-                          {variantLabel}
-                        </p>
-                      )}
-                      <p className="text-[11px] text-[var(--text-muted)]">
-                        Qty: {item.quantity}
-                      </p>
+                      <p className="text-xs font-medium leading-tight line-clamp-1">{item.product.name}</p>
+                      {variantLabel && <p className="text-[11px] text-[var(--text-muted)]">{variantLabel}</p>}
+                      <p className="text-[11px] text-[var(--text-muted)]">Qty: {item.quantity}</p>
                     </div>
                     <span className="text-xs font-semibold shrink-0">
                       {formatPriceINR(item.variant.pricePaise * item.quantity)}
@@ -762,6 +807,20 @@ export default function CheckoutPage() {
                   </div>
                 );
               })}
+            </div>
+
+            {/* Coupon input */}
+            <div className="border-t border-[var(--border)] pt-3 mb-3">
+              <p className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5">
+                <Tag className="w-3 h-3" /> Have a coupon code?
+              </p>
+              <CouponBox
+                cartTotal={totals.totalPaise}
+                productIds={cartProductIds}
+                applied={coupon}
+                onApply={(result, code) => { setCoupon(result); setCouponCode(code); }}
+                onRemove={() => { setCoupon(null); setCouponCode(null); }}
+              />
             </div>
 
             {/* Totals */}
@@ -772,53 +831,71 @@ export default function CheckoutPage() {
               </div>
               {totals.savingsPaise > 0 && (
                 <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
-                  <span>Discount</span>
-                  <span className="font-semibold">
-                    −{formatPriceINR(totals.savingsPaise)}
+                  <span>Product discount</span>
+                  <span className="font-semibold">−{formatPriceINR(totals.savingsPaise)}</span>
+                </div>
+              )}
+              {couponDiscount > 0 && (
+                <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+                  <span className="flex items-center gap-1">
+                    <Tag className="w-3 h-3" /> Coupon ({couponCode})
                   </span>
+                  <span className="font-semibold">−{formatPriceINR(couponDiscount)}</span>
                 </div>
               )}
               <div className="flex justify-between text-[var(--text-muted)]">
                 <span>Delivery</span>
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                  Free
-                </span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">Free</span>
               </div>
               <div className="flex justify-between font-bold text-base pt-1 border-t border-[var(--border)]">
                 <span>Total</span>
-                <span className="text-amber-500">
-                  {formatPriceINR(totals.totalPaise)}
-                </span>
+                <span className="text-amber-500">{formatPriceINR(finalTotal)}</span>
               </div>
             </div>
           </div>
 
-          {/* Secure payment note (Razorpay presents the methods) */}
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-emerald-500/8 border border-emerald-500/20">
-            <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-            <p className="text-xs text-emerald-700 dark:text-emerald-300">
-              You&apos;ll pay securely via Razorpay — UPI, cards, netbanking and
-              wallets are all supported at the payment step.
-            </p>
-          </div>
+          {/* 5-min countdown — only shown after Razorpay opens */}
+          {paymentOpen && !timerExpired && (
+            <PaymentTimer
+              seconds={PAYMENT_TIMEOUT_SECONDS}
+              onExpired={handleTimerExpired}
+            />
+          )}
 
-          {/* Unavailable items warning */}
-          {unavailableCount > 0 && (
-            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-600 dark:text-amber-300">
-                {unavailableCount} item{unavailableCount !== 1 ? "s" : ""} in your
-                cart {unavailableCount === 1 ? "is" : "are"} currently unavailable
-                and won&apos;t be included in this order.
+          {/* Secure payment note */}
+          {!paymentOpen && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-emerald-500/8 border border-emerald-500/20">
+              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                You&apos;ll pay securely via Razorpay — UPI, cards, netbanking and
+                wallets are all supported at the payment step.
               </p>
             </div>
           )}
 
-          {/* Order error */}
+          {unavailableCount > 0 && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-600 dark:text-amber-300">
+                {unavailableCount} item{unavailableCount !== 1 ? "s" : ""} in your cart{" "}
+                {unavailableCount === 1 ? "is" : "are"} currently unavailable and won&apos;t be included.
+              </p>
+            </div>
+          )}
+
+          {/* Error — with cart link when payment failed / timed out */}
           {orderError && (
             <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
               <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-red-600 dark:text-red-300">{orderError}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-red-600 dark:text-red-300">{orderError}</p>
+                <Link
+                  href="/store/cart"
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-300 underline underline-offset-2"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Back to cart
+                </Link>
+              </div>
             </div>
           )}
 
@@ -832,18 +909,15 @@ export default function CheckoutPage() {
             </button>
             <button
               onClick={handlePayAndPlaceOrder}
-              disabled={placing}
+              disabled={placing || timerExpired}
               className="flex-[2] flex items-center justify-center gap-2 font-semibold rounded-2xl py-3.5 bg-amber-500 text-white shadow-soft active:scale-95 transition-transform disabled:opacity-70"
             >
               {placing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Processing…
-                </>
+                <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</>
+              ) : timerExpired ? (
+                "Session expired"
               ) : (
-                <>
-                  Pay &amp; Place Order <ChevronRight className="w-4 h-4" />
-                </>
+                <>Pay &amp; Place Order <ChevronRight className="w-4 h-4" /></>
               )}
             </button>
           </div>

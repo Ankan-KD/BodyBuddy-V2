@@ -19,6 +19,8 @@ export interface CheckoutCustomerPayload {
   /** If set, save (create/update) this as the user's default delivery profile. */
   saveProfile?: boolean;
   notes?: string;
+  /** Optional promo/coupon code to apply. Validated server-side. */
+  couponCode?: string | null;
 }
 
 export interface CreatedCheckoutOrder {
@@ -27,6 +29,45 @@ export interface CreatedCheckoutOrder {
   amountPaise: number;
   razorpayOrderId: string;
   razorpayKeyId: string;
+  couponApplied: { code: string; discountPaise: number } | null;
+}
+
+// ── Coupon validation ─────────────────────────────────────────────────────
+
+export interface CouponValidationResult {
+  valid: boolean;
+  error?: string;
+  offerId?: string;
+  offerTitle?: string;
+  code?: string;
+  discountType?: "percentage" | "fixed_paise";
+  discountValue?: number;
+  discountPaise?: number;
+  discountedTotal?: number;
+}
+
+/**
+ * Validates a coupon code against the current cart total server-side.
+ * Returns the discount preview — the actual deduction is re-verified in
+ * create-order and never trusted from the client.
+ */
+export async function validateCoupon(opts: {
+  code: string;
+  orderTotalPaise: number;
+  productIds: string[];
+}): Promise<CouponValidationResult> {
+  try {
+    const res = await fetch("/api/store/checkout/validate-coupon", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify(opts),
+    });
+    const body = await res.json();
+    if (!res.ok) return { valid: false, error: body?.error ?? "Invalid coupon." };
+    return body as CouponValidationResult;
+  } catch {
+    return { valid: false, error: "Could not validate coupon. Please try again." };
+  }
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
