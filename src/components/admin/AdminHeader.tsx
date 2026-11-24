@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { Menu, Bell, ExternalLink, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
 
 const ROUTE_LABELS: Record<string, string> = {
   "/admin/dashboard":  "Dashboard",
@@ -42,6 +43,12 @@ export function AdminHeader({ onMenuClick }: Props) {
       ? user.user_metadata.name.slice(0, 2)
       : user?.email?.slice(0, 2) ?? "AD"
   ).toUpperCase();
+
+  // Global realtime connection indicator — no handlers, just tracks socket status
+  const { connected: rtConnected } = useAdminRealtime({
+    table: "store_orders",
+    // no onInsert/onUpdate/onDelete — header only shows the green/amber dot
+  });
 
   return (
     <header className="a-header">
@@ -87,8 +94,25 @@ export function AdminHeader({ onMenuClick }: Props) {
           <span className="a-header-action-label">View Store</span>
         </Link>
 
-        <button className="a-header-icon-btn" aria-label="Notifications">
+        <button className="a-header-icon-btn" aria-label="Notifications" style={{ position: "relative" }}>
           <Bell style={{ width: 16, height: 16 }} />
+          <span
+            title={rtConnected ? "Realtime connected" : "Connecting to realtime…"}
+            style={{
+              position: "absolute", top: 4, right: 4,
+              width: 6, height: 6, borderRadius: "50%",
+              background: rtConnected ? "#10b981" : "#f59e0b",
+              border: "1.5px solid var(--a-header-bg, #fff)",
+              animation: rtConnected ? "live-pulse 2s ease-in-out infinite" : undefined,
+              display: "block",
+            }}
+          />
+          <style>{`
+            @keyframes live-pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.4; }
+            }
+          `}</style>
         </button>
 
         <div

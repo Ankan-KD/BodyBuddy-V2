@@ -21,6 +21,8 @@ import { adminFetchDeliveryProfile } from "@/lib/deliveryProfileApi";
 import type { DeliveryProfile } from "@/lib/deliveryProfileTypes";
 import { formatPriceINR } from "@/lib/cartContext";
 import type { StoreOrder } from "@/lib/orderTypes";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
+import { LiveIndicator } from "@/components/admin/LiveIndicator";
 
 const PAGE_SIZE = 25;
 
@@ -255,6 +257,38 @@ export default function AdminCustomersPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── Realtime — when a new order arrives, increment the customer's
+  // order count + spend live (no reload, no flicker)
+  const { connected: rtConnected } = useAdminRealtime({
+    table: "store_orders",
+    onInsert: (row: any) => {
+      setTotal((t) => t + 1);
+      // If customer already in the list, bump their order count + spend
+      setCustomers((prev: any[]) =>
+        prev.map((c) =>
+          c.customerEmail === row.customer_email
+            ? {
+                ...c,
+                orderCount: c.orderCount + 1,
+                totalSpentPaise: c.totalSpentPaise + (row.total_paise ?? 0),
+                lastOrderAt: row.created_at ?? c.lastOrderAt,
+              }
+            : c
+        )
+      );
+    },
+    onUpdate: (row: any) => {
+      // Order status updated — refresh that customer's last-order info
+      setCustomers((prev: any[]) =>
+        prev.map((c) =>
+          c.customerEmail === row.customer_email
+            ? { ...c, lastOrderAt: row.updated_at ?? c.lastOrderAt }
+            : c
+        )
+      );
+    },
+  });
+
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     setPage(0);
@@ -277,13 +311,12 @@ export default function AdminCustomersPage() {
             {loading ? "Loading…" : `${total.toLocaleString("en-IN")} customer${total !== 1 ? "s" : ""} who have purchased`}
           </p>
         </div>
-        <button
-          onClick={load}
-          className="a-btn a-btn-ghost a-btn-sm"
-          title="Refresh"
-        >
-          <RefreshCw style={{ width: 14, height: 14 }} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <LiveIndicator connected={rtConnected} />
+          <button onClick={load} className="a-btn a-btn-ghost a-btn-sm" title="Refresh">
+            <RefreshCw style={{ width: 14, height: 14 }} />
+          </button>
+        </div>
       </div>
 
       {/* ── Summary cards ── */}

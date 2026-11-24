@@ -26,6 +26,8 @@ import {
 } from "@/lib/catalogueAdminApi";
 import type { StoreProduct, StoreProductVariant } from "@/lib/storeTypes";
 import { formatPriceINR } from "@/lib/storeTypes";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
+import { LiveIndicator } from "@/components/admin/LiveIndicator";
 
 const PAGE_SIZE = 20;
 
@@ -133,6 +135,27 @@ export default function AdminProductsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── Realtime — product published/stock changes update in-place ──────
+  const { connected: rtConnected } = useAdminRealtime({
+    table: "store_products",
+    onInsert: (row: any) => {
+      setTotal((t: number) => t + 1);
+    },
+    onUpdate: (row: any) => {
+      setProducts((prev: any[]) =>
+        prev.map((p) =>
+          p.id === row.id
+            ? { ...p, published: row.published ?? p.published, name: row.name ?? p.name }
+            : p
+        )
+      );
+    },
+    onDelete: (row: any) => {
+      setProducts((prev: any[]) => prev.filter((p) => p.id !== row.id));
+      setTotal((t: number) => Math.max(0, t - 1));
+    },
+  });
+
   function handleSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
     setPage(0);
@@ -166,7 +189,8 @@ export default function AdminProductsPage() {
             to add more
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <LiveIndicator connected={rtConnected} />
           <button onClick={load} className="a-btn a-btn-secondary a-btn-icon" title="Refresh">
             <RefreshCw style={{ width: 14, height: 14 }} className={loading ? "animate-spin" : ""} />
           </button>

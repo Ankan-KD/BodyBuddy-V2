@@ -12,6 +12,8 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
+import { LiveIndicator } from "@/components/admin/LiveIndicator";
 import {
   Plus, Search, RefreshCw, Edit2, X, Check,
   ChevronRight, AlertTriangle, Info, Layers, Tag,
@@ -194,6 +196,14 @@ export default function AdminCategoriesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── Realtime — another admin adds/renames a group or type ──────────
+  const { connected: rtConnected } = useAdminRealtime({
+    table: "product_groups",
+    onInsert: (_row: any) => { load(); },  // group list is small, safe to reload
+    onUpdate: (_row: any) => { load(); },
+    onDelete: (_row: any) => { load(); },
+  });
+
   // ── Group handlers ──────────────────────────────────────────────────────
 
   async function handleRenameGroup(id: string, name: string) {
@@ -259,9 +269,12 @@ export default function AdminCategoriesPage() {
             Renaming here updates all products that use that group or type.
           </div>
         </div>
-        <button className="a-btn a-btn-secondary a-btn-icon" onClick={load} title="Refresh">
-          <RefreshCw style={{ width: 13, height: 13 }} className={loading ? "animate-spin" : ""} />
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <LiveIndicator connected={rtConnected} />
+          <button className="a-btn a-btn-secondary a-btn-icon" onClick={load} title="Refresh">
+            <RefreshCw style={{ width: 13, height: 13 }} className={loading ? "animate-spin" : ""} />
+          </button>
+        </div>
       </div>
 
       {/* Cascade-rename info */}

@@ -32,6 +32,8 @@ import {
 import { adminFetchImportedCatalogIds } from "@/lib/storeAdminApi";
 import { parseCsvObjects } from "@/lib/csv";
 import { useRouter } from "next/navigation";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
+import { LiveIndicator } from "@/components/admin/LiveIndicator";
 
 const PAGE_SIZE = 25;
 
@@ -876,6 +878,25 @@ export default function AdminCatalogPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── Realtime — catalog imported from another session ────────────────
+  const { connected: rtConnected } = useAdminRealtime({
+    table: "store_products",
+    onInsert: (_row: any) => { setTotal((t: number) => t + 1); },
+    onUpdate: (row: any) => {
+      setProducts((prev: any[]) =>
+        prev.map((p: any) =>
+          p.id === row.id
+            ? { ...p, published: row.published ?? p.published, name: row.name ?? p.name }
+            : p
+        )
+      );
+    },
+    onDelete: (row: any) => {
+      setProducts((prev: any[]) => prev.filter((p: any) => p.id !== row.id));
+      setTotal((t: number) => Math.max(0, t - 1));
+    },
+  });
+
   async function refreshSelected(id: string) {
     const p = await fetchCatalogueProductById(id);
     if (p) setSelectedProduct(p);
@@ -919,7 +940,8 @@ export default function AdminCatalogPage() {
             Your product_catalog.csv is the source of truth — import it here to add or update products. Inline edits are overwritten the next time that product is imported.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <LiveIndicator connected={rtConnected} />
           <button onClick={() => setShowImport(true)} className="a-btn a-btn-secondary">
             <Upload style={{ width: 13, height: 13 }} /> Import CSV
           </button>

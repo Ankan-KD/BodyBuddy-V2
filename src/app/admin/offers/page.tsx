@@ -18,6 +18,8 @@ import {
 import type { StoreOffer } from "@/lib/offerTypes";
 import { offerLabel, isOfferCurrentlyValid } from "@/lib/offerTypes";
 import type { StoreProduct } from "@/lib/storeTypes";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
+import { LiveIndicator } from "@/components/admin/LiveIndicator";
 
 const EMPTY_FORM: OfferUpsertPayload = {
   title: "",
@@ -260,6 +262,14 @@ export default function AdminOffersPage() {
 
   useEffect(()=>{load();},[load]);
 
+  // ── Realtime — offer created/updated by another session ─────────────
+  const { connected: rtConnected } = useAdminRealtime({
+    table: "store_offers",
+    onInsert: (_row: any) => { load(); },
+    onUpdate: (_row: any) => { load(); },
+    onDelete: (_row: any) => { load(); },
+  });
+
   function showToast(msg:string,type:"success"|"error"="success"){
     setToast({msg,type});setTimeout(()=>setToast(null),3000);
   }
@@ -366,9 +376,12 @@ export default function AdminOffersPage() {
             <div className="a-page-title">Offers</div>
             <div className="a-page-subtitle">Manage promotional discounts and promo codes</div>
           </div>
-          <button className="a-btn a-btn-primary" onClick={()=>{setEditingOffer(null);setFormError(null);setShowForm(true);}}>
-            <Plus style={{width:15,height:15}} /> New Offer
-          </button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <LiveIndicator connected={rtConnected} />
+            <button className="a-btn a-btn-primary" onClick={()=>{setEditingOffer(null);setFormError(null);setShowForm(true);}}>
+              <Plus style={{width:15,height:15}} /> New Offer
+            </button>
+          </div>
         </div>
 
         <div className="a-filter-bar">

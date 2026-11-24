@@ -27,8 +27,8 @@ export function SalesOverviewDonut({ segments, centerLabel, centerValue }: Props
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
-      <div style={{ position: "relative", width: SIZE, height: SIZE, flexShrink: 0 }}>
-        <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="Sales overview donut chart">
+      <div style={{ position: "relative", width: "clamp(150px, 46%, 230px)", aspectRatio: "1", flexShrink: 0 }}>
+        <svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="Sales overview donut chart">
           <circle
             cx={SIZE / 2}
             cy={SIZE / 2}

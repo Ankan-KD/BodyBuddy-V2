@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Package, ShoppingBag, ArrowRight, IndianRupee, AlertTriangle,
   TrendingUp, TrendingDown, Minus, Users, BarChart3, PieChart, Boxes,
-  CheckCircle2, Wallet, Receipt, XCircle, Repeat, Clock, Sparkles, Truck, CreditCard, Store,
+  CheckCircle2, Wallet, Receipt, XCircle, Repeat, Clock, Truck, CreditCard, Store,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -40,6 +40,9 @@ import {
   type TrendMeasure,
 } from "@/lib/dashboardMetrics";
 import "./dashboard.css";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
+import { orderFromRow, type OrderRow } from "@/lib/orderTypes";
+import { LiveIndicator } from "@/components/admin/LiveIndicator";
 
 interface DashData {
   totalProducts: number;
@@ -181,6 +184,8 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [invTab, setInvTab] = useState<"attention" | "all">("attention");
 
+
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -212,6 +217,32 @@ export default function AdminDashboard() {
       });
     return () => { cancelled = true; };
   }, []);
+
+  // ── Realtime — patch state in-place, zero page reload ──────────────
+  // New order arrives → prepend to allOrders array → metrics recompute via useMemo
+  // Order updated  → patch the matching element in allOrders → badge/count updates
+  const { connected: rtConnected } = useAdminRealtime<OrderRow>({
+    table: "store_orders",
+    onInsert: (row) => {
+      const order = orderFromRow(row);
+      setData((prev) => {
+        if (!prev) return prev;
+        return { ...prev, allOrders: [order, ...prev.allOrders] };
+      });
+    },
+    onUpdate: (row) => {
+      const updated = orderFromRow(row);
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          allOrders: prev.allOrders.map((o) =>
+            o.id === updated.id ? { ...o, ...updated } : o
+          ),
+        };
+      });
+    },
+  });
 
   // ── Range-aware metrics ─────────────────────────────────────────────
   const m = useMemo(() => {
@@ -279,9 +310,6 @@ export default function AdminDashboard() {
       paymentIssues: allOrders.filter(
         (o) => o.status !== "cancelled" && (o.paymentStatus === "failed")
       ).length,
-      unpaidCod: allOrders.filter(
-        (o) => o.status !== "cancelled" && o.paymentStatus === "pending"
-      ).length,
     };
   }, [data, range]);
 
@@ -323,7 +351,10 @@ export default function AdminDashboard() {
             {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </span>
         </div>
-        <DateRangeSelect value={range} onChange={setRange} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <LiveIndicator connected={rtConnected} />
+          <DateRangeSelect value={range} onChange={setRange} />
+        </div>
       </div>
 
       {error && <div className="bbd-error">{error}</div>}
@@ -408,328 +439,278 @@ export default function AdminDashboard() {
 
       {/* ── Body ────────────────────────────────────────────────── */}
       {/*
-        Layout: left column (flex-col) | right column (top products, tall)
-        Left sequence:
-          1. Growth Trend (full left width)
-          2. Mid-pair: Needs Attention | Order Breakdown
-          3. Recent Orders (full left width)
-          4. Bottom pair: Inventory (wider) | Store Summary
+        Layout: one CSS Grid, ~2fr / 1fr, three explicit rows (grid areas):
+          trend    | top
+          orders   | breakdown
+          inventory| summary
+        All six panels are direct children of .bbd-body — no nested columns.
       */}
       <div className="bbd-body">
 
-        <div className="bbd-left">
-
-          {/* 1. Growth Trend — full left width */}
-          <div className="bbd-panel">
-            <div className="bbd-panel-head">
-              <span className="bbd-panel-title"><TrendingUp /> Growth trend</span>
-              <div className="bbd-seg" role="tablist" aria-label="Chart measure">
-                <button type="button" role="tab" aria-selected={measure === "revenue"}
-                  className={measure === "revenue" ? "active" : ""} onClick={() => setMeasure("revenue")}>Revenue</button>
-                <button type="button" role="tab" aria-selected={measure === "orders"}
-                  className={measure === "orders" ? "active" : ""} onClick={() => setMeasure("orders")}>Orders</button>
-              </div>
+        <div className="bbd-panel bbd-area-trend">
+          <div className="bbd-panel-head">
+            <span className="bbd-panel-title"><TrendingUp /> Growth trend</span>
+            <div className="bbd-seg" role="tablist" aria-label="Chart measure">
+              <button type="button" role="tab" aria-selected={measure === "revenue"}
+                className={measure === "revenue" ? "active" : ""} onClick={() => setMeasure("revenue")}>Revenue</button>
+              <button type="button" role="tab" aria-selected={measure === "orders"}
+                className={measure === "orders" ? "active" : ""} onClick={() => setMeasure("orders")}>Orders</button>
             </div>
-            <div className="bbd-chart-body">
-              <div className="bbd-chart-meta">
-                <span className="bbd-chart-num">
-                  {loading ? "—" : measure === "revenue" ? formatPriceINR(m.revenue) : count(m.ordersCount)}
-                </span>
-                <Delta
-                  change={measure === "revenue" ? m.revenueChange : m.ordersChange}
-                  fmt={measure === "revenue" ? formatPriceINR : count}
-                  prevLabel={prevLabel}
-                  loading={loading}
-                />
-              </div>
-              <RevenueTrendChart
-                points={loading ? [] : trendPoints}
-                formatValue={chartFmt}
-                height={200}
-                seriesName={rangeLabel.charAt(0).toUpperCase() + rangeLabel.slice(1)}
-                emptyText={loading ? "Loading…" : measure === "revenue" ? "No revenue in this period yet." : "No orders in this period yet."}
+          </div>
+          <div className="bbd-chart-body">
+            <div className="bbd-chart-meta">
+              <span className="bbd-chart-num">
+                {loading ? "—" : measure === "revenue" ? formatPriceINR(m.revenue) : count(m.ordersCount)}
+              </span>
+              <Delta
+                change={measure === "revenue" ? m.revenueChange : m.ordersChange}
+                fmt={measure === "revenue" ? formatPriceINR : count}
+                prevLabel={prevLabel}
+                loading={loading}
               />
             </div>
+            <RevenueTrendChart
+              points={loading ? [] : trendPoints}
+              formatValue={chartFmt}
+              height={200}
+              seriesName={rangeLabel.charAt(0).toUpperCase() + rangeLabel.slice(1)}
+              emptyText={loading ? "Loading…" : measure === "revenue" ? "No revenue in this period yet." : "No orders in this period yet."}
+            />
           </div>
+        </div>
 
-          {/* 2. Mid-pair: Needs Attention | Order Breakdown */}
-          <div className="bbd-mid-pair">
-
-            {/* Needs attention */}
-            <div className="bbd-panel">
-              <div className="bbd-panel-head">
-                <span className="bbd-panel-title"><Sparkles /> Needs attention</span>
-              </div>
-              <div className="bbd-attn-list bbd-scroll bbd-attn-scroll">
-                {loading && <p className="bbd-empty">Loading…</p>}
-                {!loading && m.awaitingAction + m.paymentIssues + outOfStockCount + lowStockCount + m.unpaidCod === 0 && (
-                  <p className="bbd-empty">Nothing needs attention. 🎉</p>
-                )}
-                {!loading && m.awaitingAction > 0 && (
-                  <Link href="/admin/orders" className="bbd-attn-row"><i className="dot amber" />{m.awaitingAction} new order{m.awaitingAction > 1 ? "s" : ""} waiting to be confirmed<ArrowRight /></Link>
-                )}
-                {!loading && m.paymentIssues > 0 && (
-                  <Link href="/admin/orders" className="bbd-attn-row"><i className="dot red" />{m.paymentIssues} order{m.paymentIssues > 1 ? "s" : ""} with failed payment<ArrowRight /></Link>
-                )}
-                {!loading && m.unpaidCod > 0 && (
-                  <Link href="/admin/orders" className="bbd-attn-row"><i className="dot blue" />{m.unpaidCod} order{m.unpaidCod > 1 ? "s" : ""} with payment pending<ArrowRight /></Link>
-                )}
-                {!loading && outOfStockCount > 0 && (
-                  <Link href="/admin/inventory" className="bbd-attn-row"><i className="dot red" />{outOfStockCount} variant{outOfStockCount > 1 ? "s" : ""} out of stock<ArrowRight /></Link>
-                )}
-                {!loading && lowStockCount > 0 && (
-                  <Link href="/admin/inventory" className="bbd-attn-row"><i className="dot amber" />{lowStockCount} variant{lowStockCount > 1 ? "s" : ""} running low<ArrowRight /></Link>
-                )}
-              </div>
-            </div>
-
-            {/* Order breakdown */}
-            <div className="bbd-panel">
-              <div className="bbd-panel-head">
-                <span className="bbd-panel-title"><PieChart /> Order breakdown</span>
-                <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>{rangeLabel}</span>
-              </div>
-              <div className="bbd-donut-wrap">
-                {loading && <p className="bbd-empty">Loading…</p>}
-                {!loading && m.donutSegments.length === 0 && <p className="bbd-empty">No orders in this period.</p>}
-                {!loading && m.donutSegments.length > 0 && (
-                  <SalesOverviewDonut
-                    segments={m.donutSegments}
-                    centerValue={String(m.current.length)}
-                    centerLabel="Orders"
-                  />
-                )}
-              </div>
-            </div>
+        <div className="bbd-panel bbd-area-top">
+          <div className="bbd-panel-head">
+            <span className="bbd-panel-title"><BarChart3 /> Top products</span>
+            <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>{rangeLabel}</span>
           </div>
+          <div className="bbd-top-list bbd-scroll bbd-top-scroll">
+            {loading && <p className="bbd-empty">Loading…</p>}
+            {!loading && m.topProducts.length === 0 && <p className="bbd-empty">No sales in this period.</p>}
+            {!loading && m.topProducts.map((p, i) => {
+              const barW = Math.round((p.revenuePaise / maxTopRev) * 100);
+              return (
+                <div key={p.key} className="bbd-top-row">
+                  <span className={`bbd-rank${i === 0 ? " one" : ""}`}>{i + 1}</span>
+                  <div className="bbd-thumb">
+                    {p.imageUrl
+                      ? <Image src={p.imageUrl} alt={p.productName} width={36} height={36} />
+                      : initials(p.productName)}
+                  </div>
+                  <div className="bbd-top-info">
+                    <div className="bbd-top-name">{p.productName}</div>
+                    <div className="bbd-top-units">{p.unitsSold} sold</div>
+                    <div className="bbd-top-bar"><i style={{ width: `${barW}%` }} /></div>
+                  </div>
+                  <div className="bbd-top-amount">{formatPriceINR(p.revenuePaise)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
-          {/* 3. Recent Orders — full left width */}
-          <div className="bbd-panel">
-            <div className="bbd-panel-head">
-              <span className="bbd-panel-title">Recent orders</span>
-              <Link href="/admin/orders" className="bbd-panel-action">View all <ArrowRight /></Link>
-            </div>
-            <div className="bbd-orders-body">
-              <div className="a-table-wrap bbd-scroll">
-                <table className="a-table">
-                  <thead>
-                    <tr>
-                      <th>Order #</th><th>Customer</th><th>Date</th><th>Amount</th>
-                      <th>Payment</th><th>Status</th><th style={{ width: 56 }}></th>
+        <div className="bbd-panel bbd-area-orders">
+          <div className="bbd-panel-head">
+            <span className="bbd-panel-title">Recent orders</span>
+            <Link href="/admin/orders" className="bbd-panel-action">View all <ArrowRight /></Link>
+          </div>
+          <div className="bbd-orders-body">
+            <div className="a-table-wrap bbd-scroll">
+              <table className="a-table">
+                <thead>
+                  <tr>
+                    <th>Order #</th><th>Customer</th><th>Date</th><th>Amount</th>
+                    <th>Payment</th><th>Status</th><th style={{ width: 56 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading && <tr><td colSpan={7} className="bbd-empty">Loading…</td></tr>}
+                  {!loading && (data?.allOrders ?? []).length === 0 && (
+                    <tr><td colSpan={7} className="bbd-empty">No orders yet.</td></tr>
+                  )}
+                  {!loading && (data?.allOrders ?? []).slice(0, ORDER_LIMIT).map((o) => (
+                    <tr key={o.id}>
+                      <td className="td-num">{o.orderNumber}</td>
+                      <td style={{ fontSize: 12.5, color: "var(--a-text)" }}>{o.customerName}</td>
+                      <td className="td-date">
+                        {new Date(o.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                      </td>
+                      <td className="td-amount">{formatPriceINR(o.totalPaise)}</td>
+                      <td>
+                        <span className={`a-badge ${PAYMENT_BADGE[o.paymentStatus] ?? "a-badge-neutral"}`}>
+                          {PAYMENT_LABEL[o.paymentStatus] ?? o.paymentStatus}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`a-badge ${STATUS_BADGE[o.status] ?? "a-badge-neutral"}`}>
+                          {STATUS_LABEL[o.status] ?? o.status}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <Link href={`/admin/orders/${o.id}`} className="a-btn a-btn-ghost a-btn-sm" style={{ fontSize: 11 }}>View</Link>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {loading && <tr><td colSpan={7} className="bbd-empty">Loading…</td></tr>}
-                    {!loading && (data?.allOrders ?? []).length === 0 && (
-                      <tr><td colSpan={7} className="bbd-empty">No orders yet.</td></tr>
-                    )}
-                    {!loading && (data?.allOrders ?? []).slice(0, ORDER_LIMIT).map((o) => (
-                      <tr key={o.id}>
-                        <td className="td-num">{o.orderNumber}</td>
-                        <td style={{ fontSize: 12.5, color: "var(--a-text)" }}>{o.customerName}</td>
-                        <td className="td-date">
-                          {new Date(o.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                        </td>
-                        <td className="td-amount">{formatPriceINR(o.totalPaise)}</td>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!loading && (data?.allOrders ?? []).length > 0 && (
+              <div className="bbd-foot">
+                <span>Showing {Math.min(ORDER_LIMIT, (data?.allOrders ?? []).length)} of {count((data?.allOrders ?? []).length)} orders</span>
+                <Link href="/admin/orders" className="bbd-panel-action">See all orders <ArrowRight /></Link>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bbd-panel bbd-area-breakdown">
+          <div className="bbd-panel-head">
+            <span className="bbd-panel-title"><PieChart /> Order breakdown</span>
+            <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>{rangeLabel}</span>
+          </div>
+          <div className="bbd-donut-wrap">
+            {loading && <p className="bbd-empty">Loading…</p>}
+            {!loading && m.donutSegments.length === 0 && <p className="bbd-empty">No orders in this period.</p>}
+            {!loading && m.donutSegments.length > 0 && (
+              <SalesOverviewDonut
+                segments={m.donutSegments}
+                centerValue={String(m.current.length)}
+                centerLabel="Orders"
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="bbd-panel bbd-area-inventory">
+          <div className="bbd-panel-head">
+            <span className="bbd-panel-title"><Boxes /> Inventory</span>
+            <div className="bbd-seg" role="tablist" aria-label="Inventory filter">
+              <button type="button" role="tab" aria-selected={invTab === "attention"}
+                className={invTab === "attention" ? "active" : ""} onClick={() => setInvTab("attention")}>
+                Needs restock{!loading && attentionRows.length > 0 ? ` (${attentionRows.length})` : ""}
+              </button>
+              <button type="button" role="tab" aria-selected={invTab === "all"}
+                className={invTab === "all" ? "active" : ""} onClick={() => setInvTab("all")}>All</button>
+            </div>
+          </div>
+
+          <div className="bbd-inv-stats">
+            <div className="crit"><b>{num(outOfStockCount)}</b><span>Out of stock</span></div>
+            <div className="warn"><b>{num(lowStockCount)}</b><span>Low stock</span></div>
+            <div className="ok"><b>{num(healthyCount)}</b><span>Healthy</span></div>
+            <div><b>{num(data?.inventoryTotal ?? 0)}</b><span>Variants tracked</span></div>
+          </div>
+
+          <div className="bbd-scroll bbd-inv-scroll">
+            {loading && <p className="bbd-empty">Loading…</p>}
+            {!loading && invRows.length === 0 && (
+              <p className="bbd-empty">
+                {invTab === "attention" ? "Everything is stocked above its reorder level. 🎉" : "No inventory yet."}
+              </p>
+            )}
+            {!loading && invRows.length > 0 && (
+              <table className="bbd-inv-table">
+                <thead>
+                  <tr><th>Product</th><th>SKU</th><th>Stock level</th><th style={{ textAlign: "right" }}>Status</th></tr>
+                </thead>
+                <tbody>
+                  {invRows.map((r) => {
+                    const badge = stockBadge(r);
+                    const cap = Math.max(r.lowStockThreshold * 3, 1);
+                    const pct = Math.min(100, Math.round((r.stockQuantity / cap) * 100));
+                    return (
+                      <tr key={r.variantId}>
                         <td>
-                          <span className={`a-badge ${PAYMENT_BADGE[o.paymentStatus] ?? "a-badge-neutral"}`}>
-                            {PAYMENT_LABEL[o.paymentStatus] ?? o.paymentStatus}
-                          </span>
+                          <div className="bbd-inv-prod">
+                            <div className="bbd-thumb">
+                              {r.imageUrl
+                                ? <Image src={r.imageUrl} alt={r.productName} width={32} height={32} />
+                                : <Package style={{ width: 14, height: 14, color: "var(--a-text-4)" }} />}
+                            </div>
+                            <div className="bbd-inv-info">
+                              <div className="bbd-inv-name">{r.productName}</div>
+                              <div className="bbd-inv-variant">{r.variantName}</div>
+                            </div>
+                          </div>
                         </td>
+                        <td className="bbd-inv-sku">{r.sku}</td>
                         <td>
-                          <span className={`a-badge ${STATUS_BADGE[o.status] ?? "a-badge-neutral"}`}>
-                            {STATUS_LABEL[o.status] ?? o.status}
-                          </span>
+                          <div className="bbd-lvl">
+                            <div className="bbd-lvl-top">
+                              <b>{r.stockQuantity}</b><span>reorder at {r.lowStockThreshold}</span>
+                            </div>
+                            <div className={`bbd-lvl-bar ${badge.cls}`}><i style={{ width: `${pct}%` }} /></div>
+                          </div>
                         </td>
                         <td style={{ textAlign: "right" }}>
-                          <Link href={`/admin/orders/${o.id}`} className="a-btn a-btn-ghost a-btn-sm" style={{ fontSize: 11 }}>View</Link>
+                          <span className={`bbd-inv-badge ${badge.cls}`}>{badge.label}</span>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {!loading && (data?.allOrders ?? []).length > 0 && (
-                <div className="bbd-foot">
-                  <span>Showing {Math.min(ORDER_LIMIT, (data?.allOrders ?? []).length)} of {count((data?.allOrders ?? []).length)} orders</span>
-                  <Link href="/admin/orders" className="bbd-panel-action">See all orders <ArrowRight /></Link>
-                </div>
-              )}
-            </div>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
+          {!loading && invRowsTotal > 0 && (
+            <div className="bbd-foot">
+              <span>Showing {Math.min(INV_LIMIT, invRows.length)} of {count(invRowsTotal)} variants</span>
+              <Link href="/admin/inventory" className="bbd-panel-action">See all inventory <ArrowRight /></Link>
+            </div>
+          )}
+        </div>
 
-          {/* 4. Bottom pair: Inventory (wider) | Store Summary */}
-          <div className="bbd-pair">
+        <div className="bbd-panel bbd-area-summary">
+          <div className="bbd-panel-head">
+            <span className="bbd-panel-title"><Store /> Store summary</span>
+            <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>live snapshot</span>
+          </div>
+          <div className="bbd-scroll bbd-sum-scroll">
 
-            {/* Inventory */}
-            <div className="bbd-panel">
-              <div className="bbd-panel-head">
-                <span className="bbd-panel-title"><Boxes /> Inventory</span>
-                <div className="bbd-seg" role="tablist" aria-label="Inventory filter">
-                  <button type="button" role="tab" aria-selected={invTab === "attention"}
-                    className={invTab === "attention" ? "active" : ""} onClick={() => setInvTab("attention")}>
-                    Needs restock{!loading && attentionRows.length > 0 ? ` (${attentionRows.length})` : ""}
-                  </button>
-                  <button type="button" role="tab" aria-selected={invTab === "all"}
-                    className={invTab === "all" ? "active" : ""} onClick={() => setInvTab("all")}>All</button>
-                </div>
+            <div className="bbd-sum-group">
+              <div className="bbd-sum-title"><Truck /> Order pipeline <em>all time</em></div>
+              <div className="bbd-pipe-bar">
+                {(["placed", "confirmed", "processing", "shipped", "delivered"] as const).map((k) => (
+                  <i key={k} style={{ flexGrow: m.pipeline[k], background: STATUS_COLORS[k] }} />
+                ))}
               </div>
-
-              <div className="bbd-inv-stats">
-                <div className="crit"><b>{num(outOfStockCount)}</b><span>Out of stock</span></div>
-                <div className="warn"><b>{num(lowStockCount)}</b><span>Low stock</span></div>
-                <div className="ok"><b>{num(healthyCount)}</b><span>Healthy</span></div>
-                <div><b>{num(data?.inventoryTotal ?? 0)}</b><span>Variants tracked</span></div>
-              </div>
-
-              <div className="bbd-scroll bbd-inv-scroll">
-                {loading && <p className="bbd-empty">Loading…</p>}
-                {!loading && invRows.length === 0 && (
-                  <p className="bbd-empty">
-                    {invTab === "attention" ? "Everything is stocked above its reorder level. 🎉" : "No inventory yet."}
-                  </p>
-                )}
-                {!loading && invRows.length > 0 && (
-                  <table className="bbd-inv-table">
-                    <thead>
-                      <tr><th>Product</th><th>SKU</th><th>Stock level</th><th style={{ textAlign: "right" }}>Status</th></tr>
-                    </thead>
-                    <tbody>
-                      {invRows.map((r) => {
-                        const badge = stockBadge(r);
-                        const cap = Math.max(r.lowStockThreshold * 3, 1);
-                        const pct = Math.min(100, Math.round((r.stockQuantity / cap) * 100));
-                        return (
-                          <tr key={r.variantId}>
-                            <td>
-                              <div className="bbd-inv-prod">
-                                <div className="bbd-thumb">
-                                  {r.imageUrl
-                                    ? <Image src={r.imageUrl} alt={r.productName} width={32} height={32} />
-                                    : <Package style={{ width: 14, height: 14, color: "var(--a-text-4)" }} />}
-                                </div>
-                                <div className="bbd-inv-info">
-                                  <div className="bbd-inv-name">{r.productName}</div>
-                                  <div className="bbd-inv-variant">{r.variantName}</div>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="bbd-inv-sku">{r.sku}</td>
-                            <td>
-                              <div className="bbd-lvl">
-                                <div className="bbd-lvl-top">
-                                  <b>{r.stockQuantity}</b><span>reorder at {r.lowStockThreshold}</span>
-                                </div>
-                                <div className={`bbd-lvl-bar ${badge.cls}`}><i style={{ width: `${pct}%` }} /></div>
-                              </div>
-                            </td>
-                            <td style={{ textAlign: "right" }}>
-                              <span className={`bbd-inv-badge ${badge.cls}`}>{badge.label}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-              {!loading && invRowsTotal > 0 && (
-                <div className="bbd-foot">
-                  <span>Showing {Math.min(INV_LIMIT, invRows.length)} of {count(invRowsTotal)} variants</span>
-                  <Link href="/admin/inventory" className="bbd-panel-action">See all inventory <ArrowRight /></Link>
-                </div>
-              )}
+              {(["placed", "confirmed", "processing", "shipped", "delivered"] as const).map((k) => (
+                <Link key={k} href="/admin/orders" className="bbd-sum-row">
+                  <span><i className="dot" style={{ background: STATUS_COLORS[k] }} />{STATUS_LABEL[k]}</span>
+                  <b>{num(m.pipeline[k])}</b>
+                </Link>
+              ))}
+              <Link href="/admin/orders" className="bbd-sum-row">
+                <span><i className="dot" style={{ background: STATUS_COLORS.cancelled }} />Cancelled</span>
+                <b>{num(m.pipeline.cancelled)}</b>
+              </Link>
             </div>
 
-            {/* Store Summary */}
-            <div className="bbd-panel">
-              <div className="bbd-panel-head">
-                <span className="bbd-panel-title"><Store /> Store summary</span>
-                <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>live snapshot</span>
-              </div>
-              <div className="bbd-scroll bbd-sum-scroll">
-
-                <div className="bbd-sum-group">
-                  <div className="bbd-sum-title"><Truck /> Order pipeline <em>all time</em></div>
-                  <div className="bbd-pipe-bar">
-                    {(["placed", "confirmed", "processing", "shipped", "delivered"] as const).map((k) => (
-                      <i key={k} style={{ flexGrow: m.pipeline[k], background: STATUS_COLORS[k] }} />
-                    ))}
-                  </div>
-                  {(["placed", "confirmed", "processing", "shipped", "delivered"] as const).map((k) => (
-                    <Link key={k} href="/admin/orders" className="bbd-sum-row">
-                      <span><i className="dot" style={{ background: STATUS_COLORS[k] }} />{STATUS_LABEL[k]}</span>
-                      <b>{num(m.pipeline[k])}</b>
-                    </Link>
-                  ))}
-                  <Link href="/admin/orders" className="bbd-sum-row">
-                    <span><i className="dot" style={{ background: STATUS_COLORS.cancelled }} />Cancelled</span>
-                    <b>{num(m.pipeline.cancelled)}</b>
-                  </Link>
-                </div>
-
-                <div className="bbd-sum-group">
-                  <div className="bbd-sum-title"><CreditCard /> Payments</div>
-                  <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-stat-green)" }} />Received · {rangeLabel}</span><b>{money(m.collected)}</b></div>
-                  <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-stat-amber)" }} />Awaiting payment</span><b>{money(m.pendingPaymentPaise)}</b></div>
-                  <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-stat-red)" }} />Failed payments</span><b>{num(m.paymentIssues)}</b></div>
-                  <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-text-4)" }} />Refunded orders</span><b>{num(m.refundedCount)}</b></div>
-                </div>
-
-                <div className="bbd-sum-group">
-                  <div className="bbd-sum-title"><Package /> Catalog</div>
-                  <Link href="/admin/products" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-green)" }} />Published</span><b>{num(data?.publishedProducts ?? 0)}</b></Link>
-                  <Link href="/admin/products" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-amber)" }} />Drafts (not visible)</span><b>{num(data?.draftProducts ?? 0)}</b></Link>
-                  <Link href="/admin/inventory" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-red)" }} />Out-of-stock variants</span><b>{num(outOfStockCount)}</b></Link>
-                </div>
-
-                <div className="bbd-sum-group">
-                  <div className="bbd-sum-title"><Users /> Customers</div>
-                  <Link href="/admin/customers" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-blue)" }} />Total customers</span><b>{num(m.totalCustomers)}</b></Link>
-                  <Link href="/admin/customers" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-green)" }} />New · {rangeLabel}</span><b>{num(m.newCust)}</b></Link>
-                  <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-stat-amber)" }} />Repeat buyers</span><b>{loading ? "—" : `${m.repeatRate}%`}</b></div>
-                </div>
-
-              </div>
+            <div className="bbd-sum-group">
+              <div className="bbd-sum-title"><CreditCard /> Payments</div>
+              <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-stat-green)" }} />Received · {rangeLabel}</span><b>{money(m.collected)}</b></div>
+              <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-stat-amber)" }} />Awaiting payment</span><b>{money(m.pendingPaymentPaise)}</b></div>
+              <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-stat-red)" }} />Failed payments</span><b>{num(m.paymentIssues)}</b></div>
+              <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-text-4)" }} />Refunded orders</span><b>{num(m.refundedCount)}</b></div>
             </div>
+
+            <div className="bbd-sum-group">
+              <div className="bbd-sum-title"><Package /> Catalog</div>
+              <Link href="/admin/products" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-green)" }} />Published</span><b>{num(data?.publishedProducts ?? 0)}</b></Link>
+              <Link href="/admin/products" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-amber)" }} />Drafts (not visible)</span><b>{num(data?.draftProducts ?? 0)}</b></Link>
+              <Link href="/admin/inventory" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-red)" }} />Out-of-stock variants</span><b>{num(outOfStockCount)}</b></Link>
+            </div>
+
+            <div className="bbd-sum-group">
+              <div className="bbd-sum-title"><Users /> Customers</div>
+              <Link href="/admin/customers" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-blue)" }} />Total customers</span><b>{num(m.totalCustomers)}</b></Link>
+              <Link href="/admin/customers" className="bbd-sum-row"><span><i className="dot" style={{ background: "var(--a-stat-green)" }} />New · {rangeLabel}</span><b>{num(m.newCust)}</b></Link>
+              <div className="bbd-sum-row static"><span><i className="dot" style={{ background: "var(--a-stat-amber)" }} />Repeat buyers</span><b>{loading ? "—" : `${m.repeatRate}%`}</b></div>
+            </div>
+
           </div>
         </div>
 
-        {/* ── Right column: Top Products (tall) ──────────────── */}
-        <div className="bbd-right">
-
-          {/* Top products — range-aware, tall right column */}
-          <div className="bbd-panel">
-            <div className="bbd-panel-head">
-              <span className="bbd-panel-title"><BarChart3 /> Top products</span>
-              <span style={{ fontSize: 11, color: "var(--a-text-3)" }}>{rangeLabel}</span>
-            </div>
-            <div className="bbd-top-list bbd-scroll bbd-top-scroll">
-              {loading && <p className="bbd-empty">Loading…</p>}
-              {!loading && m.topProducts.length === 0 && <p className="bbd-empty">No sales in this period.</p>}
-              {!loading && m.topProducts.map((p, i) => {
-                const barW = Math.round((p.revenuePaise / maxTopRev) * 100);
-                return (
-                  <div key={p.key} className="bbd-top-row">
-                    <span className={`bbd-rank${i === 0 ? " one" : ""}`}>{i + 1}</span>
-                    <div className="bbd-thumb">
-                      {p.imageUrl
-                        ? <Image src={p.imageUrl} alt={p.productName} width={36} height={36} />
-                        : initials(p.productName)}
-                    </div>
-                    <div className="bbd-top-info">
-                      <div className="bbd-top-name">{p.productName}</div>
-                      <div className="bbd-top-units">{p.unitsSold} sold</div>
-                      <div className="bbd-top-bar"><i style={{ width: `${barW}%` }} /></div>
-                    </div>
-                    <div className="bbd-top-amount">{formatPriceINR(p.revenuePaise)}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-        </div>
       </div>
     </div>
   );

@@ -7,6 +7,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
+import { LiveIndicator } from "@/components/admin/LiveIndicator";
 import {
   Warehouse,
   Search,
@@ -189,6 +191,27 @@ export default function AdminInventoryPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── Realtime — stock level changes update in-place ──────────────────
+  const { connected: rtConnected } = useAdminRealtime({
+    table: "store_product_variants",
+    onUpdate: (row: any) => {
+      setRows((prev: any[]) =>
+        prev.map((r) =>
+          r.variantId === row.id
+            ? { ...r, stockQuantity: row.stock_quantity ?? r.stockQuantity }
+            : r
+        )
+      );
+    },
+    onInsert: (row: any) => {
+      setTotal((t: number) => t + 1);
+    },
+    onDelete: (row: any) => {
+      setRows((prev: any[]) => prev.filter((r) => r.variantId !== row.id));
+      setTotal((t: number) => Math.max(0, t - 1));
+    },
+  });
+
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     setPage(0);
@@ -233,6 +256,7 @@ export default function AdminInventoryPage() {
             {loading ? "Loading…" : `${total.toLocaleString("en-IN")} variant${total !== 1 ? "s" : ""}`}
           </p>
         </div>
+        <LiveIndicator connected={rtConnected} />
       </div>
 
       {/* ── Alert messages ── */}

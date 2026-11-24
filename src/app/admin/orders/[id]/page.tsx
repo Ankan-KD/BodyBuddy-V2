@@ -34,6 +34,8 @@ import type { StoreSettings } from "@/lib/offerTypes";
 import { formatPriceINR } from "@/lib/cartContext";
 import { downloadReceiptPdf } from "@/lib/receiptPdf";
 import { downloadAdminReceiptPdf } from "@/lib/adminReceiptPdf";
+import { useAdminRealtime } from "@/lib/useAdminRealtime";
+import { LiveIndicator } from "@/components/admin/LiveIndicator";
 import { printShippingLabel, downloadShippingLabel } from "@/lib/shippingLabelPdf";
 
 // ── Status lifecycle definition ───────────────────────────────────────────
@@ -109,6 +111,26 @@ export default function AdminOrderDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+
+  // ── Realtime — patch this order in-place when it changes remotely ────
+  // e.g. another admin or the payment webhook updates the status
+  const { connected: rtConnected } = useAdminRealtime({
+    table: "store_orders",
+    filter: id ? `id=eq.${id}` : undefined,
+    onUpdate: (row: any) => {
+      setOrder((prev) => {
+        if (!prev) return prev;
+        // Only patch the fields that actually change (status, paymentStatus, updatedAt)
+        return {
+          ...prev,
+          status: row.status ?? prev.status,
+          paymentStatus: row.payment_status ?? prev.paymentStatus,
+          updatedAt: row.updated_at ?? prev.updatedAt,
+          notes: row.notes ?? prev.notes,
+        };
+      });
+    },
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -189,6 +211,7 @@ export default function AdminOrderDetailPage() {
             })}
           </p>
         </div>
+        <LiveIndicator connected={rtConnected} />
       </div>
 
       {/* ── Feedback messages ── */}
